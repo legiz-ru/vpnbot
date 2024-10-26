@@ -4689,14 +4689,10 @@ DNS-over-HTTPS with IP:
         return 'off';
     }
 
-    public function offWarp()
+    public function offWarp($inversion = true)
     {
         $p = $this->getPacConf();
-        if (empty($p['warpoff'])) {
-            $this->ssh('warp-cli --accept-tos registration delete', 'wp');
-            $this->ssh('pkill warp-svc', 'wp');
-            $p['warpoff'] = 1;
-        } else {
+        if ($inversion && !empty($p['warpoff'])) {
             $this->ssh('warp-svc > /dev/null 2>&1 &', 'wp');
             sleep(3);
             if (empty($this->ssh('[ -f "/var/lib/cloudflare-warp/conf.json" ] && echo 1', 'wp'))) {
@@ -4708,9 +4704,19 @@ DNS-over-HTTPS with IP:
             $this->send($this->input['chat'], 'Proxy mode: ' . $this->ssh('warp-cli --accept-tos mode proxy 2>&1', 'wp'));
             $this->send($this->input['chat'], 'Connect: ' . $this->ssh('warp-cli --accept-tos connect 2>&1', 'wp'));
             unset($p['warpoff']);
+        } else {
+            if (empty($inversion)) {
+                $this->ssh('warp-cli --accept-tos registration delete 2>&1', 'wp');
+            } else {
+                $this->send($this->input['chat'], 'Registration delete: ' . $this->ssh('warp-cli --accept-tos registration delete 2>&1', 'wp'));
+            }
+            $this->ssh('pkill warp-svc', 'wp');
+            $p['warpoff'] = 1;
         }
         $this->setPacConf($p);
-        $this->warp();
+        if (!empty($inversion)) {
+            $this->warp();
+        }
     }
 
     public function warp()
@@ -5546,7 +5552,7 @@ DNS-over-HTTPS with IP:
         ];
         exec("git -C / branch -vv", $mm);
         return [
-            'text' => '<pre><code class="language-shell">' . implode("\n", $mm) . '</code></pre>',
+            'text' => '<pre><code class="language-shell">' . htmlentities(implode("\n", $mm)) . '</code></pre>',
             'data' => $data,
         ];
     }
