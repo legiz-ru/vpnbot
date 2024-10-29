@@ -3701,7 +3701,8 @@ DNS-over-HTTPS with IP:
     {
         $text[] = "Menu -> " . $this->i18n('xray') . ' -> ' . $this->i18n('routes') . ' -> rulesset list';
 
-        [$data, $text] = $this->listPac('rulessetlist', $page, 'xtlsrulesset', 1);
+        [$data, $tmp] = $this->listPac('rulessetlist', $page, 'xtlsrulesset', 1);
+        $text = array_merge($text, $tmp ?: []);
         $data[] = [
             [
                 'text'          => $this->i18n('back'),
@@ -4689,10 +4690,15 @@ DNS-over-HTTPS with IP:
         return 'off';
     }
 
-    public function offWarp($inversion = true)
+    public function offWarp()
     {
-        $p = $this->getPacConf();
-        if ($inversion && !empty($p['warpoff'])) {
+        $p    = $this->getPacConf();
+        if (!empty($this->selfupdate)) {
+            if (!empty($p['warpoff'])) {
+                $this->ssh('warp-cli --accept-tos registration delete 2>&1', 'wp');
+                $this->ssh('pkill warp-svc', 'wp');
+            }
+        } elseif (!empty($p['warpoff'])) {
             $this->ssh('warp-svc > /dev/null 2>&1 &', 'wp');
             sleep(3);
             if (empty($this->ssh('[ -f "/var/lib/cloudflare-warp/conf.json" ] && echo 1', 'wp'))) {
@@ -4705,16 +4711,12 @@ DNS-over-HTTPS with IP:
             $this->send($this->input['chat'], 'Connect: ' . $this->ssh('warp-cli --accept-tos connect 2>&1', 'wp'));
             unset($p['warpoff']);
         } else {
-            if (empty($inversion)) {
-                $this->ssh('warp-cli --accept-tos registration delete 2>&1', 'wp');
-            } else {
-                $this->send($this->input['chat'], 'Registration delete: ' . $this->ssh('warp-cli --accept-tos registration delete 2>&1', 'wp'));
-            }
+            $this->send($this->input['chat'], 'Registration delete: ' . $this->ssh('warp-cli --accept-tos registration delete 2>&1', 'wp'));
             $this->ssh('pkill warp-svc', 'wp');
             $p['warpoff'] = 1;
         }
         $this->setPacConf($p);
-        if (!empty($inversion)) {
+        if (empty($this->selfupdate)) {
             $this->warp();
         }
     }
@@ -5842,6 +5844,7 @@ DNS-over-HTTPS with IP:
         $this->input['message_id']  = $rm[1];
         $this->input['callback_id'] = $rm[1];
         if (file_exists($this->update)) {
+            $this->selfupdate = true;
             if (!empty($m)) {
                 $this->send($this->input['chat'], "<pre>$m</pre>", $rm[1]);
             }
