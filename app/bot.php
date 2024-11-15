@@ -11,6 +11,7 @@ class Bot
     public $file;
     public $dns;
     public $mtu;
+    public $logs;
 
     public function __construct($key, $i18n)
     {
@@ -28,6 +29,12 @@ class Bot
         $this->limit    = $this->getPacConf()['limitpage'] ?: 5;
         $this->adguard  = '/config/AdGuardHome.yaml';
         $this->update   = '/update/json';
+        $this->logs = [
+            'nginx_default_access',
+            'nginx_domain_access',
+            'upstream_access',
+            'xray',
+        ];
     }
 
     public function input()
@@ -139,14 +146,66 @@ class Bot
             case preg_match('~^/mirror$~', $this->input['message'], $m):
                 $this->menu('mirror');
                 break;
+            case preg_match('~^/switchBanIp$~', $this->input['callback'], $m):
+                $this->switchBanIp();
+                break;
+            case preg_match('~^/searchLogs (.+)$~', $this->input['message'], $m):
+                $this->searchLogs($m[1]);
+                break;
+            case preg_match('~^/switchSilence$~', $this->input['callback'], $m):
+                $this->switchSilence();
+                break;
+            case preg_match('~^/switchScanIp$~', $this->input['callback'], $m):
+                $this->switchScanIp();
+                break;
+            case preg_match('~^/autoScanTimeout$~', $this->input['callback'], $m):
+                $this->autoScanTimeout();
+                break;
             case preg_match('~^/autoupdate$~', $this->input['message'], $m):
                 $this->autoupdate();
+                break;
+            case preg_match('~^/ports$~', $this->input['callback'], $m):
+                $this->ports();
+                break;
+            case preg_match('~^/ip$~', $this->input['message'], $m):
+            case preg_match('~^/analysisIp$~', $this->input['callback'], $m):
+                $this->analysisIp();
+                break;
+            case preg_match('~^/ipMenu$~', $this->input['callback'], $m):
+                $this->ipMenu();
+                break;
+            case preg_match('~^/cleanDeny(?:\s(\d))?$~', $this->input['callback'], $m):
+                $this->cleanDeny($m[1]);
+                break;
+            case preg_match('~^/denyList (.+?)(?:\s(\d))?$~', $this->input['callback'], $m):
+                $this->denyList($m[1], $m[2] ?: 0);
+                break;
+            case preg_match('~^/cleanLogs (.+?)(?:\s(1))?$~', $this->input['callback'], $m):
+                $this->cleanLogs($m[1], $m[2]);
+                break;
+            case preg_match('~^/allowIp (\d+\.\d+\.\d+\.\d+) (\d+)(?:\s(\d+))?$~', $this->input['callback'], $m):
+                $this->allowIp($m[1], $m[2], $m[3]);
+                break;
+            case preg_match('~^/searchIp (.+)$~', $this->input['callback'], $m):
+                $this->searchIp($m[1]);
+                break;
+            case preg_match('~^/denyIp (.+?)(?:\s(\d)\s(\d+?)\s(\d))?$~', $this->input['callback'], $m):
+                $this->denyIp($m[1], $m[2], $m[3], $m[4]);
+                break;
+            case preg_match('~^/whiteIp (.+?)(?:\s(\d)\s(\d+?)\s(\d))?$~', $this->input['callback'], $m):
+                $this->whiteIp($m[1], $m[2], $m[3], $m[4]);
                 break;
             case preg_match('~^/adgFillAllowedClients(?: (\d+))?$~', $this->input['callback'], $m):
                 $this->adgFillAllowedClients($m[1] ?: false);
                 break;
             case preg_match('~^/appOutbound$~', $this->input['callback'], $m):
                 $this->appOutbound();
+                break;
+            case preg_match('~^/domainsOutbound$~', $this->input['callback'], $m):
+                $this->domainsOutbound();
+                break;
+            case preg_match('~^/finalOutbound$~', $this->input['callback'], $m):
+                $this->finalOutbound();
                 break;
             case preg_match('~^/processOutbound$~', $this->input['callback'], $m):
                 $this->processOutbound();
@@ -175,6 +234,9 @@ class Bot
             case preg_match('~^/exportList (\w+)$~', $this->input['callback'], $m):
                 $this->exportList($m[1]);
                 break;
+            case preg_match('~^/hidePort (\w+)$~', $this->input['callback'], $m):
+                $this->hidePort($m[1]);
+                break;
             case preg_match('~^/deleteYes (\w+)$~', $this->input['callback'], $m):
                 $this->deleteYes($m[1]);
                 break;
@@ -186,6 +248,9 @@ class Bot
                 break;
             case preg_match('~^/applyupdatebot$~', $this->input['callback'], $m):
                 $this->applyupdatebot();
+                break;
+            case preg_match('~^/restart$~', $this->input['callback'], $m):
+                $this->restart();
                 break;
             case preg_match('~^/branches$~', $this->input['callback'], $m):
                 $this->branches();
@@ -204,6 +269,9 @@ class Bot
                 break;
             case preg_match('~^/clearLog (?P<arg>\d+(?:_(?:-)?\d+)?)$~', $this->input['callback'], $m):
                 $this->clearLog(...explode('_', $m['arg']));
+                break;
+            case preg_match('~^/cleanLog$~', $this->input['callback'], $m):
+                $this->cleanLog();
                 break;
             case preg_match('~^/delLog (?P<arg>\d+(?:_(?:-)?\d+)?)$~', $this->input['callback'], $m):
                 $this->delLog(...explode('_', $m['arg']));
@@ -288,9 +356,6 @@ class Bot
                 break;
             case preg_match('~^/checkdns$~', $this->input['callback'], $m):
                 $this->checkdns();
-                break;
-            case preg_match('~^/resetnginx$~', $this->input['callback'], $m):
-                $this->resetnginx();
                 break;
             case preg_match('~^/adguardpsswd$~', $this->input['callback'], $m):
                 $this->adguardpsswd();
@@ -401,6 +466,9 @@ class Bot
             case preg_match('~^/deldomain$~', $this->input['callback'], $m):
                 $this->delDomain();
                 break;
+            case preg_match('~^/addNipdomain$~', $this->input['callback'], $m):
+                $this->addNipdomain();
+                break;
             case preg_match('~^/(?P<action>change|delete)(?P<typelist>\w+) (?P<arg>\d+)$~', $this->input['callback'], $m):
                 $this->listPacChange($m['typelist'], $m['action'], $m['arg']);
                 break;
@@ -449,8 +517,14 @@ class Bot
             case preg_match('~^/xtlsrulesset(?: (\d+))?$~', $this->input['callback'], $m):
                 $this->xtlsrulesset($m[1] ?: 0);
                 break;
+            case preg_match('~^/templateCopy (\w+)(?: (.+))?$~', $this->input['callback'], $m):
+                $this->templateCopy($m[1], $m[2]);
+                break;
             case preg_match('~^/delTemplate (\w+)(?: (.+))?$~', $this->input['callback'], $m):
                 $this->delTemplate($m[1], $m[2]);
+                break;
+            case preg_match('~^/downloadOrigin (\w+)$~', $this->input['callback'], $m):
+                $this->downloadOrigin($m[1]);
                 break;
             case preg_match('~^/downloadTemplate (\w+)(?: (.+))?$~', $this->input['callback'], $m):
                 $this->downloadTemplate($m[1], $m[2]);
@@ -570,6 +644,7 @@ class Bot
     public function restartXray($c)
     {
         $c['inbounds'][0]['settings']['clients'] = array_values($c['inbounds'][0]['settings']['clients']);
+        $c['log']['access'] = '/logs/xray';
         $this->ssh('pkill xray', 'xr');
         file_put_contents('/config/xray.json', json_encode($c, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         $this->ssh('xray run -config /xray.json > /dev/null 2>&1 &', 'xr');
@@ -1076,7 +1151,54 @@ class Bot
             $this->checkVersion();
             $this->checkBackup($period);
             $this->checkCert();
+            $this->autoAnalyzeLogs();
             sleep($period);
+        }
+    }
+
+    public function autoAnalyzeLogs()
+    {
+        try {
+            $pac = $this->getPacConf();
+            if (!empty($pac['autoscan'])) {
+                $r = $this->analysisIp(1);
+                require __DIR__ . '/config.php';
+                if (!empty($c['admin']) && (empty($this->time3) || ((time() - $this->time3) > $pac['autoscan_timeout']))) {
+                    $this->time3 = time();
+                    if (!empty($r)) {
+                        foreach ($r as $k => $v) {
+                            $tmp = array_unique($v);
+                            foreach ($tmp as $i) {
+                                $t[$i]++;
+                            }
+                        }
+                        foreach ($t as $k => $v) {
+                            $text .= "\n$v $k";
+                        }
+                        if (!empty($pac['autodeny'])) {
+                            $this->denyIp(array_keys($r));
+                            $ban = count(array_keys($r));
+                            foreach (array_keys($r) as $v) {
+                                $ips[] = [[
+                                    'text'          => "logs $v",
+                                    'callback_data' => "/searchIp $v",
+                                ]];
+                            }
+                        }
+                        if ($pac['silence'] == 0 || $pac['silence'] == 1) {
+                            foreach ($c['admin'] as $k => $v) {
+                                $this->send($v, "suspicious ips found: $text" . ($ban ? "\nbanned:$ban" : ''), button: $ips ?: [[
+                                    [
+                                        'text'          => $this->i18n('analyze'),
+                                        'callback_data' => '/analysisIp',
+                                    ],
+                                ]], disable_notification: $pac['silence'] ? true : false);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception $e) {
         }
     }
 
@@ -1765,6 +1887,11 @@ class Bot
         }
     }
 
+    public function addNipdomain()
+    {
+        $this->addDomain(str_replace('.', '-', $this->ip) . '.nip.io');
+    }
+
     public function addDomain($domain, $nomenu = false)
     {
         $domain = trim($domain);
@@ -1813,7 +1940,7 @@ class Bot
         $this->input['chat']        = $c['admin'][0];
         $this->input['message_id']  = $r['result']['message_id'];
         $this->input['callback_id'] = false;
-        if (empty($p['domain'])) {
+        if (empty($p)) {
             $this->addDomain(str_replace('.', '-', $this->ip) . '.nip.io', 1);
             $this->setSSL('letsencrypt');
         }
@@ -2059,25 +2186,22 @@ class Bot
         ];
     }
 
-    public function resetnginx()
+    public function adguardSync()
     {
-        $nginx   = file_get_contents('/config/nginx.conf');
-        $default = file_get_contents('/config/nginx_default.conf');
-        file_put_contents('/config/nginx.conf', $default);
-        $u = $this->ssh("nginx -t 2>&1", 'ng');
-        $out[] = $u;
-        $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-        if (preg_match('~test is successful~', $u)) {
-            $out[] = $this->ssh("nginx -s reload 2>&1", 'ng');
-            $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-            $conf = $this->getPacConf();
-            unset($conf['domain']);
-            $this->setPacConf($conf);
-        } else {
-            file_put_contents('/config/nginx.conf', $nginx);
+        $pac = $this->getPacConf();
+        $pac['adpswd'] = $pac['adpswd'] ?: substr(hash('md5', time()), 0, 10);
+        $this->setPacConf($pac);
+        $ssl = $this->nginxGetTypeCert();
+        $c   = yaml_parse_file($this->adguard);
+        $this->stopAd();
+        $c['users'][0]['password'] = password_hash($pac['adpswd'], PASSWORD_DEFAULT);
+        if (!empty($ssl) && !empty($pac['domain']) && empty($c['tls']['enabled'])) {
+            $c['tls']['enabled']     = true;
+            $c['tls']['server_name'] = $pac['domain'];
         }
-        sleep(5);
-        $this->menu('config');
+        yaml_emit_file($this->adguard, $c);
+        $this->startAd();
+        $this->adguardProtect();
     }
 
     public function adguardpsswd()
@@ -2248,7 +2372,12 @@ class Bot
         $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
         $out[] = $this->stopAd();
         $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-        $this->adguardChangePswd($pass);
+        $c = yaml_parse_file($this->adguard);
+        $c['users'][0]['password'] = password_hash($pass, PASSWORD_DEFAULT);
+        yaml_emit_file($this->adguard, $c);
+        $p = $this->getPacConf();
+        $p['adpswd'] = $pass;
+        $this->setPacConf($p);
         $out[] = $this->startAd();
         $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
         sleep(3);
@@ -2259,12 +2388,8 @@ class Bot
     {
         $out[] = 'Restart Adguard Home';
         $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-        $out[] = $this->stopAd();
-        $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-        $c = yaml_parse_file($this->adguard);
-        yaml_emit_file($this->adguard, $c);
-        $out[] = $this->startAd();
-        $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
+        exec('git -C / checkout config/AdGuardHome.yaml');
+        $this->adguardSync();
         sleep(3);
         $this->menu('adguard');
     }
@@ -3613,8 +3738,15 @@ DNS-over-HTTPS with IP:
     public function xtlsproxy($page = 0)
     {
         $_SESSION['proxylistentry'] = 1;
+        $p = $this->getPacConf();
         $text[] = "Menu -> " . $this->i18n('xray') . ' -> ' . $this->i18n('routes') . ' -> proxy list';
         [$data] = $this->listPac('includelist', $page, 'xtlsproxy');
+        $data[] = [
+            [
+                'text'          => 'set to ' . ($p['domains_outbound'] ? 'proxy' : 'direct'),
+                'callback_data' => "/domainsOutbound",
+            ],
+        ];
         $data[] = [
             [
                 'text'          => $this->i18n('back'),
@@ -3635,6 +3767,22 @@ DNS-over-HTTPS with IP:
         $p['app_outbound'] = !$p['app_outbound'];
         $p = $this->setPacConf($p);
         $this->xtlsapp();
+    }
+
+    public function domainsOutbound()
+    {
+        $p = $this->getPacConf();
+        $p['domains_outbound'] = !$p['domains_outbound'];
+        $p = $this->setPacConf($p);
+        $this->xtlsproxy();
+    }
+
+    public function finalOutbound()
+    {
+        $p = $this->getPacConf();
+        $p['final_outbound'] = !$p['final_outbound'];
+        $p = $this->setPacConf($p);
+        $this->routes();
     }
 
     public function processOutbound()
@@ -3898,7 +4046,7 @@ DNS-over-HTTPS with IP:
     public function menu($type = false, $arg = false, $return = false)
     {
         $domain = $this->getPacConf()['domain'] ?: $this->ip;
-        $cron   = exec('pgrep -f cron.php');
+        $cron   = $this->ssh('pgrep -f cron.php', 'service');
         $menu   = [
             'main' => [
                 'text' => 'v' . getenv('VER') . ($this->dontshowcron ? '' : "\ncron: " . $this->i18n($cron ? 'on' : 'off') . ($cron ? '' : ' show <code>logs/php_error</code>')),
@@ -3955,6 +4103,12 @@ DNS-over-HTTPS with IP:
                     ],
                     [
                         [
+                            'text'          => $this->i18n('IP ban & Logs'),
+                            'callback_data' => "/ipMenu",
+                        ],
+                    ],
+                    [
+                        [
                             'text'          => $this->i18n('config'),
                             'callback_data' => "/menu config",
                         ],
@@ -3962,7 +4116,7 @@ DNS-over-HTTPS with IP:
                     [
                         [
                             'text' => $this->i18n('chat'),
-                            'url'  => "https://t.me/+BYuWVd36cZYwNTMy",
+                            'url'  => "https://t.me/+Wfxg6-nrokBlMmYy",
                         ],
                         [
                             'text' => $this->i18n('donate'),
@@ -3973,18 +4127,18 @@ DNS-over-HTTPS with IP:
                     ],
                 ],
             ],
-            'wg'           => $type == 'wg'           ? $this->statusWg($arg) : false,
+            'wg'           => $type == 'wg'           ? $this->statusWg($arg)                   : false,
             'client'       => $type == 'client'       ? $this->getClient(...explode('_', $arg)) : false,
-            'addpeer'      => $type == 'addpeer'      ? $this->addWg(...explode('_', $arg)) : false,
-            'pac'          => $type == 'pac'          ? $this->pacMenu($arg) : false,
-            'adguard'      => $type == 'adguard'      ? $this->adguardMenu() : false,
-            'config'       => $type == 'config'       ? $this->configMenu() : false,
-            'ss'           => $type == 'ss'           ? $this->menuSS() : false,
-            'lang'         => $type == 'lang'         ? $this->menuLang() : false,
-            'oc'           => $type == 'oc'           ? $this->ocMenu() : false,
-            'naive'        => $type == 'naive'        ? $this->naiveMenu() : false,
-            'mirror'       => $type == 'mirror'       ? $this->mirrorMenu() : false,
-            'update'       => $type == 'update'       ? $this->updatebot() : false,
+            'addpeer'      => $type == 'addpeer'      ? $this->addWg(...explode('_', $arg))     : false,
+            'pac'          => $type == 'pac'          ? $this->pacMenu($arg)                    : false,
+            'adguard'      => $type == 'adguard'      ? $this->adguardMenu()                    : false,
+            'config'       => $type == 'config'       ? $this->configMenu()                     : false,
+            'ss'           => $type == 'ss'           ? $this->menuSS()                         : false,
+            'lang'         => $type == 'lang'         ? $this->menuLang()                       : false,
+            'oc'           => $type == 'oc'           ? $this->ocMenu()                         : false,
+            'naive'        => $type == 'naive'        ? $this->naiveMenu()                      : false,
+            'mirror'       => $type == 'mirror'       ? $this->mirrorMenu()                     : false,
+            'update'       => $type == 'update'       ? $this->updatebot()                      : false,
         ];
 
         $text = $menu[$type ?: 'main' ]['text'];
@@ -4009,6 +4163,430 @@ DNS-over-HTTPS with IP:
                 $data ?: false,
             );
         }
+    }
+
+    public function switchScanIp()
+    {
+        $c = $this->getPacConf();
+        $c['autoscan'] = $c['autoscan'] ? 0 : 1;
+        $this->setPacConf($c);
+        $this->ipMenu();
+    }
+
+    public function switchBanIp()
+    {
+        $c = $this->getPacConf();
+        $c['autodeny'] = $c['autodeny'] ? 0 : 1;
+        $this->setPacConf($c);
+        $this->ipMenu();
+    }
+
+    public function switchSilence()
+    {
+        $c = $this->getPacConf();
+        $c['silence'] = (($c['silence'] ?: 0) + 1) % 3;
+        $this->setPacConf($c);
+        $this->ipMenu();
+    }
+
+    public function ipMenu()
+    {
+        $text   = 'Menu -> IP';
+        $pac    = $this->getPacConf();
+        $d      = count($pac['deny'] ?: []);
+        $w      = count($pac['white'] ?: []);
+        $data[] = [
+            [
+                'text'          => $this->i18n('logs'),
+                'callback_data' => "/logs",
+            ],
+        ];
+        $data[] = [
+            [
+                'text'          => $this->i18n('autoscan') . ': ' . ($pac['autoscan'] ? $this->getTime(strtotime(($pac['autoscan_timeout'] ?: 3600) . ' seconds')) : $this->i18n('off')),
+                'callback_data' => '/autoScanTimeout',
+            ],
+        ];
+        if (!empty($pac['autoscan'])) {
+            $data[] = [
+                [
+                    'text'          => $this->i18n('autoblock') . ': ' . $this->i18n($pac['autodeny'] ? 'on' : 'off'),
+                    'callback_data' => '/switchBanIp',
+                ],
+                [
+                    'text'          => $this->i18n('silence') . ': ' . ((function ($pac) {
+                        switch ($pac['silence']) {
+                            case 0:
+                                return $this->i18n('off');
+                            case 1:
+                                return '🟡';
+                            case 2:
+                                return $this->i18n('on');
+                        }
+                    })($pac)),
+                    'callback_data' => '/switchSilence',
+                ],
+            ];
+        }
+        $data[] = [
+            [
+                'text'          => $this->i18n('ignorelist') . ": $w",
+                'callback_data' => '/denyList 0 1',
+            ],
+            [
+                'text'          => $this->i18n('blocklist') . ": $d",
+                'callback_data' => '/denyList 0 0',
+            ],
+        ];
+        $data[] = [
+            [
+                'text'          => $this->i18n('analyze'),
+                'callback_data' => '/analysisIp',
+            ],
+        ];
+        $data[] = [
+            [
+                'text'          => $this->i18n('back'),
+                'callback_data' => "/menu",
+            ],
+        ];
+        $this->update(
+            $this->input['chat'],
+            $this->input['message_id'],
+            $text,
+            $data ?: false,
+        );
+    }
+
+    public function analysisIp($return = false)
+    {
+        $pac = $this->getPacConf();
+        foreach (array_merge($pac['white'] ?: [], $pac['deny'] ?: [], [
+            '10.10.0.1' ,'10.10.1.1' ,
+            '10.10.0.2' ,'10.10.1.2' ,
+            '10.10.0.3' ,'10.10.1.3' ,
+            '10.10.0.4' ,'10.10.1.4' ,
+            '10.10.0.5' ,'10.10.1.5' ,
+            '10.10.0.6' ,'10.10.1.6' ,
+            '10.10.0.7' ,'10.10.1.7' ,
+            '10.10.0.8' ,'10.10.1.8' ,
+            '10.10.0.9' ,'10.10.1.9' ,
+            '10.10.0.10','10.10.1.10',
+            '10.10.0.11','10.10.1.11',
+            '10.10.0.12','10.10.1.12',
+            '10.10.0.13','10.10.1.13',
+            '10.10.0.14','10.10.1.14',
+            '10.10.0.15','10.10.1.15',
+            ]) as $v) {
+            $xr[$v] = true;
+        }
+        if ($r = fopen('/logs/nginx_tlgrm_access', 'r')) {
+            while (feof($r) === false) {
+                $l = fgets($r);
+                if (preg_match('~(\d+\.\d+\.\d+\.\d+)~', $l, $m)) {
+                    $xr[$m[1]] = true;
+                }
+            }
+            fclose($r);
+        }
+        if ($r = fopen('/logs/xray', 'r')) {
+            while (feof($r) === false) {
+                $l = fgets($r);
+                if (preg_match('~(\d+\.\d+\.\d+\.\d+)(?=.+accepted)~', $l, $m)) {
+                    $xr[$m[1]] = true;
+                }
+            }
+            fclose($r);
+        }
+
+        if ($r = fopen('/logs/upstream_access', 'r')) {
+            while (feof($r) === false) {
+                $l = fgets($r);
+                if (preg_match('~(\d+\.\d+\.\d+\.\d+).+200\s\d+\s0$~', $l, $m)) {
+                    if (empty($xr[$m[1]])) {
+                        $ip[$m[1]][] = 'possibly a Reality Degenerate';
+                    }
+                }
+            }
+            fclose($r);
+        }
+
+        $reg = [
+            'GET /ws(?:.+)? HTTP',
+            'GET /adguard/(?:.+)? HTTP',
+            'GET /webapp(?:.+)? HTTP',
+            'GET /pac(?:.+)? HTTP',
+            'GET \.well-known(?:.+)? HTTP',
+            'GET /v2ray(?:.+)? HTTP',
+            'GET /dns-query(?:.+)? HTTP',
+            'GET / HTTP',
+            'GET /tlgrm(?:.+)? HTTP',
+            'GET /jsoneditor.min.css HTTP',
+            'GET /jsoneditor.min.js HTTP',
+            'GET /jquery-3.7.1.min.js HTTP',
+            'GET /img/jsoneditor-icons.svg HTTP',
+            'GET /favicon.ico HTTP',
+        ];
+
+        if ($r = fopen('/logs/nginx_default_access', 'r')) {
+            while (feof($r) === false) {
+                $l = fgets($r);
+                if (!preg_match('~' . implode('|', $reg) . '~', $l)) {
+                    if (preg_match('~(\d+\.\d+\.\d+\.\d+)~', $l, $m)) {
+                        if (empty($xr[$m[1]])) {
+                            $ip[$m[1]][] = 'possibly a scanner';
+                        }
+                    }
+                }
+            }
+            fclose($r);
+        }
+
+        if ($r = fopen('/logs/nginx_domain_access', 'r')) {
+            while (feof($r) === false) {
+                $l = fgets($r);
+                if (!preg_match('~' . implode('|', $reg) . '~', $l)) {
+                    if (preg_match('~(\d+\.\d+\.\d+\.\d+)~', $l, $m)) {
+                        if (empty($xr[$m[1]])) {
+                            $ip[$m[1]][] = 'possibly a scanner';
+                        }
+                    }
+                }
+            }
+            fclose($r);
+        }
+
+        if (!empty($ip)) {
+            if (!empty($return)) {
+                return $ip;
+            }
+            foreach ($ip as $k => $v) {
+                $file .= "/searchLogs $k\n";
+            }
+            $this->sendFile($this->input['from'], new CURLStringFile($file, 'analyze_ip_' . date('Y_m_d_H_i_s')));
+        } else {
+            $this->answer($this->input['callback_id'], 'empty');
+        }
+    }
+
+    public function searchLogs($search)
+    {
+        if (preg_match('~^\d+\.\d+\.\d+\.\d+$~', $search)) {
+            $this->send($this->input['from'], $search, button: [[
+                [
+                    'text'          => $this->i18n('block'),
+                    'callback_data' => "/denyIp $search",
+                ],
+                [
+                    'text'          => $this->i18n('ignore'),
+                    'callback_data' => "/whiteIp $search",
+                ],
+                [
+                    'text'          => $this->i18n('logs'),
+                    'callback_data' => "/searchIp $search",
+                ],
+                [
+                    'text'          => $this->i18n('clean logs'),
+                    'callback_data' => "/cleanLogs $search",
+                ],
+            ]]);
+        }
+    }
+
+    public function searchIp($ip)
+    {
+        foreach ($this->logs as $v) {
+            if ($r = fopen("/logs/$v", 'r')) {
+                while (feof($r) === false) {
+                    $l = fgets($r);
+                    if (preg_match('~' . preg_quote($ip) . '~', $l)) {
+                        $res[$v][] = $l;
+                    }
+                }
+                fclose($r);
+            }
+        }
+        if (!empty($res)) {
+            foreach ($res as $k => $v) {
+                $head= "$k:\n";
+                $t = array_chunk($v, 10);
+                foreach ($t as $j) {
+                    $text = "$head<pre>";
+                    foreach ($j as $i) {
+                        $text .= htmlspecialchars($i, ENT_HTML5, 'UTF-8');
+                    }
+                    $text .= '</pre>';
+                    $this->send($this->input['from'], $text, $this->input['message_id']);
+                }
+            }
+        } else {
+            $this->answer($this->input['callback_id'], 'empty');
+        }
+    }
+
+    public function denyList($page = 0, $white = 0)
+    {
+        $text    = 'Menu -> IP -> ' . ($white ? 'white' : 'deny') . ' list';
+        $domains = $this->getPacConf()[$white ? 'white' : 'deny'] ?: [];
+        $all     = (int) ceil(count($domains) / $this->limit);
+        $page    = min($page, $all - 1);
+        $page    = $page < 0 ? $all - 1 : $page;
+
+        if (!empty($domains)) {
+            foreach (array_slice($domains, $page * $this->limit, $this->limit) as $v) {
+                $data[] = [
+                    [
+                        'text'          => $this->i18n('delete') . " $v",
+                        'callback_data' => "/allowIp $v $page" . ($white ? " 1" : ''),
+                    ],
+                    [
+                        'text'          => $this->i18n($white ? 'block' : 'ignore'),
+                        'callback_data' => ($white ? "/denyIp" : "/whiteIp") . " $v 1 $page $white",
+                    ],
+                    [
+                        'text'          => $this->i18n('logs'),
+                        'callback_data' => "/searchIp $v",
+                    ],
+                    [
+                        'text'          => $this->i18n('clean logs'),
+                        'callback_data' => "/cleanLogs $v 1",
+                    ],
+                ];
+            }
+            if ($all > 1) {
+                $data[] = [
+                    [
+                        'text'          => '<<',
+                        'callback_data' => "/denyList " . ($page - 1 >= 0 ? $page - 1 : $all - 1) . ($white ? " 1" : ' 0'),
+                    ],
+                    [
+                        'text'          => '>>',
+                        'callback_data' => "/denyList " . ($page < $all - 1 ? $page + 1 : 0) . ($white ? " 1" : ' 0'),
+                    ]
+                ];
+            }
+            $data[] = [
+                [
+                    'text'          => $this->i18n('delete all'),
+                    'callback_data' => "/cleanDeny" . ($white ? " 1" : ''),
+                ],
+            ];
+        }
+
+        $data[] = [
+            [
+                'text'          => $this->i18n('back'),
+                'callback_data' => "/ipMenu",
+            ],
+        ];
+        $this->update(
+            $this->input['chat'],
+            $this->input['message_id'],
+            $text,
+            $data ?: false,
+        );
+    }
+
+    public function cleanDeny($white = 0)
+    {
+        $pac = $this->getPacConf();
+        unset($pac[$white ? 'white' : 'deny']);
+        $this->setPacConf($pac);
+        $this->syncDeny();
+        $this->ipMenu();
+    }
+
+    public function denyIp($ip, $nodelete = false, $page = 0, $white = 0)
+    {
+        $pac = $this->getPacConf();
+        if (is_array($ip)) {
+            foreach ($ip as $v) {
+                $pac['deny'][] = $v;
+                if (($t = array_search($v, $pac['white'] ?: [])) !== false) {
+                    unset($pac['white'][$t]);
+                }
+            }
+        } else {
+            $pac['deny'][] = $ip;
+            if (($t = array_search($ip, $pac['white'] ?: [])) !== false) {
+                unset($pac['white'][$t]);
+            }
+        }
+        $this->setPacConf($pac);
+        if (empty($nodelete)) {
+            $this->delete($this->input['from'], $this->input['message_id']);
+        }
+        $this->syncDeny();
+        if (!empty($nodelete)) {
+            $this->denyList($page, $white);
+        }
+    }
+
+    public function whiteIp($ip, $nodelete = false, $page = 0, $white = 0)
+    {
+        $pac = $this->getPacConf();
+        if (is_array($ip)) {
+            foreach ($ip as $v) {
+                $pac['white'][] = $v;
+                if (($t = array_search($v, $pac['deny'] ?: [])) !== false) {
+                    unset($pac['deny'][$t]);
+                }
+            }
+        } else {
+            $pac['white'][] = $ip;
+            if (($t = array_search($ip, $pac['deny'] ?: [])) !== false) {
+                unset($pac['deny'][$t]);
+            }
+        }
+        $this->setPacConf($pac);
+        if (empty($nodelete)) {
+            $this->delete($this->input['from'], $this->input['message_id']);
+        }
+        $this->syncDeny();
+        if (!empty($nodelete)) {
+            $this->denyList($page, $white);
+        }
+    }
+
+    public function allowIp($ip, $page, $white = 0)
+    {
+        $pac = $this->getPacConf();
+        unset($pac[$white ? 'white' : 'deny'][array_search($ip, $pac[$white ? 'white' : 'deny'])]);
+        $this->setPacConf($pac);
+        $this->syncDeny();
+        $this->denyList($page, $white);
+    }
+
+    public function cleanLogs($ip, $nodelete = false)
+    {
+        foreach ($this->logs as $v) {
+            exec("sed -i '/$ip/d' /logs/$v");
+        }
+        if (empty($nodelete)) {
+            $this->delete($this->input['from'], $this->input['message_id']);
+        }
+    }
+
+    public function syncDeny()
+    {
+        $pac = $this->getPacConf();
+        if (!empty($pac['white'])) {
+            $pac['white'] = array_unique($pac['white']);
+            sort($pac['white']);
+            foreach ($pac['white'] as $v) {
+                $text .= "allow $v;\n";
+            }
+        }
+        if (!empty($pac['deny'])) {
+            $pac['deny'] = array_unique($pac['deny']);
+            sort($pac['deny']);
+            foreach ($pac['deny'] as $v) {
+                $text .= "deny $v;\n";
+            }
+        }
+        $this->setPacConf($pac);
+        file_put_contents('/config/deny', $text ?: '');
+        $this->ssh('nginx -s reload', 'up');
     }
 
     public function linkXray($i, $s = false)
@@ -4381,6 +4959,54 @@ DNS-over-HTTPS with IP:
         ];
     }
 
+    public function autoScanTimeout()
+    {
+        $r = $this->send(
+            $this->input['chat'],
+            "@{$this->input['username']} send time like 1 hour or 1 day etc",
+            $this->input['message_id'],
+            reply: 'send time like 1 hour or 1 day etc',
+        );
+        $_SESSION['reply'][$r['result']['message_id']] = [
+            'start_message'  => $this->input['message_id'],
+            'start_callback' => $this->input['callback_id'],
+            'callback'       => 'setAutoScanTimeout',
+            'args'           => [],
+        ];
+    }
+
+    public function setAutoScanTimeout($time)
+    {
+        $pac = $this->getPacConf();
+        if (empty($time)) {
+            unset($pac['autoscan_timeout']);
+            unset($pac['autoscan']);
+        } elseif ($t = strtotime($time, 0)) {
+            $pac['autoscan_timeout'] = $t;
+            $pac['autoscan'] = 1;
+        } else {
+            $this->send($this->input['from'], "$time - wrong format", $this->input['message_id']);
+        }
+        $this->setPacConf($pac);
+        $this->ipMenu();
+    }
+
+    public function templateCopy($type)
+    {
+        $r = $this->send(
+            $this->input['chat'],
+            "@{$this->input['username']} send the template name",
+            $this->input['message_id'],
+            reply: 'send the template name',
+        );
+        $_SESSION['reply'][$r['result']['message_id']] = [
+            'start_message'  => $this->input['message_id'],
+            'start_callback' => $this->input['callback_id'],
+            'callback'       => 'copyTemplate',
+            'args'           => [$type],
+        ];
+    }
+
     public function addTemplate($n, $type)
     {
         if (empty($this->input['caption'])) {
@@ -4399,12 +5025,57 @@ DNS-over-HTTPS with IP:
         $this->templates($type);
     }
 
+    public function saveTemplate($name, $type, $json)
+    {
+        if (json_decode($json, true) === false) {
+            return [
+                'status'  => false,
+                'message' => 'wrong format',
+            ];
+        }
+        $pac = $this->getPacConf();
+        switch ($name) {
+            case 'origin':
+                file_put_contents("/config/$type.json", json_encode(json_decode($json, true), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                break;
+
+            default:
+                $pac["{$type}templates"][$name] = json_decode($json, true);
+                break;
+        }
+        $this->setPacConf($pac);
+        return [
+            'status' => true,
+        ];
+    }
+
     public function delTemplate($type, $name)
     {
         $pac = $this->getPacConf();
         unset($pac["{$type}templates"][base64_decode($name)]);
         $this->setPacConf($pac);
         $this->templates($type);
+    }
+
+    public function copyTemplate($name, $type)
+    {
+        $pac  = $this->getPacConf();
+        $pac["{$type}templates"][$name] = json_decode(file_get_contents("/config/$type.json"), true);
+        $this->setPacConf($pac);
+        $this->templates($type);
+    }
+
+    public function downloadOrigin($type)
+    {
+        switch ($type) {
+            case 'sing':
+                $f = new \CURLFile('/config/sing.json', 'application/json', 'origin.json');
+                break;
+            case 'v2ray':
+                $f = new \CURLFile('/config/v2ray.json', 'application/json', 'origin.json');
+                break;
+        }
+        $this->sendFile($this->input['chat'], $f);
     }
 
     public function downloadTemplate($type, $name)
@@ -4446,6 +5117,14 @@ DNS-over-HTTPS with IP:
                 'web_app' => ['url' => "https://$domain/pac?h=$hash&t=te&ty=$type"],
             ],
             [
+                'text'          => $this->i18n('download'),
+                'callback_data' => "/downloadOrigin $type",
+            ],
+            [
+                'text'          => $this->i18n('copy'),
+                'callback_data' => "/templateCopy $type",
+            ],
+            [
                 'text'          => $this->i18n($pac["default{$type}template"] && !empty($pac["{$type}templates"][base64_decode($pac["default{$type}template"])]) ? 'off' : 'on'),
                 'callback_data' => "/defaultTemplate $type",
             ],
@@ -4453,7 +5132,7 @@ DNS-over-HTTPS with IP:
         foreach ($templates as $k => $v) {
             $data[] = [
                 [
-                    'text'          => "$k",
+                    'text'          => $k,
                     'web_app' => ['url' => "https://$domain/pac?h=$hash&t=te&ty=$type&te=" . urlencode($k)],
                 ],
                 [
@@ -4610,6 +5289,9 @@ DNS-over-HTTPS with IP:
     {
         $text[] = "Menu -> " . $this->i18n('xray') . ' -> routes';
 
+        $p = $this->getPacConf();
+        $outbound = $p['outbound'] ?: 'proxy';
+
         $data = [
             [[
                 'text'          => $this->i18n('block'),
@@ -4620,20 +5302,24 @@ DNS-over-HTTPS with IP:
                 'callback_data' => "/xtlswarp",
             ]],
             [[
-                'text'          => $this->i18n('proxy'),
+                'text'          => $this->i18n('rulesset'),
+                'callback_data' => "/xtlsrulesset",
+            ]],
+            [[
+                'text'          => 'domains: ' . ($p['domains_outbound'] ? 'direct' : $outbound),
                 'callback_data' => "/xtlsproxy",
             ]],
             [[
-                'text'          => $this->i18n('process'),
+                'text'          => 'process: ' . ($p['process_outbound'] ? 'direct' : $outbound),
                 'callback_data' => "/xtlsprocess",
             ]],
             [[
-                'text'          => $this->i18n('package'),
+                'text'          => 'package: ' . ($p['app_outbound'] ? 'direct' : $outbound),
                 'callback_data' => "/xtlsapp",
             ]],
             [[
-                'text'          => $this->i18n('rulesset'),
-                'callback_data' => "/xtlsrulesset",
+                'text'          => 'final: ' . ($p['final_outbound'] ? $outbound : 'direct'),
+                'callback_data' => "/finalOutbound",
             ]],
         ];
         $data[] = [
@@ -5001,15 +5687,26 @@ DNS-over-HTTPS with IP:
                 break;
         }
 
+        $outbound = $pac['outbound'] ?: 'proxy';
+        $c = json_decode($this->replaceTags(json_encode($c), [
+            '~outbound~' => $outbound,
+        ]), true);
+        foreach ($c['outbounds'] as $k => $v) {
+            if ($v['tag'] == $outbound) {
+                $index = $k;
+                break;
+            }
+        }
+
         switch ($_GET['t']) {
             case 's':
-                $c['outbounds'][0]['settings']['vnext'][0]['address']  = '~domain~';
-                $c['outbounds'][0]['settings']['vnext'][0]['users'][0] = [
+                $c['outbounds'][$index]['settings']['vnext'][0]['address']  = '~domain~';
+                $c['outbounds'][$index]['settings']['vnext'][0]['users'][0] = [
                     'id'         => '~uid~',
                     'encryption' => 'none',
                 ];
                 if ($pac['transport'] == 'Websocket') {
-                    $c['outbounds'][0]['streamSettings'] = [
+                    $c['outbounds'][$index]['streamSettings'] = [
                         "network"    => "ws",
                         "security"   => "tls",
                         "wsSettings" => [
@@ -5021,10 +5718,10 @@ DNS-over-HTTPS with IP:
                             "fingerprint"   => "chrome"
                         ]
                     ];
-                    unset($c['outbounds'][0]['mux']);
+                    unset($c['outbounds'][$index]['mux']);
                 } else {
-                    $c['outbounds'][0]['settings']['vnext'][0]['users'][0]["flow"] = "xtls-rprx-vision";
-                    $c['outbounds'][0]['streamSettings']                           = [
+                    $c['outbounds'][$index]['settings']['vnext'][0]['users'][0]["flow"] = "xtls-rprx-vision";
+                    $c['outbounds'][$index]['streamSettings']                           = [
                         "network"         => "tcp",
                         "security"        => "reality",
                         "realitySettings" => [
@@ -5034,29 +5731,29 @@ DNS-over-HTTPS with IP:
                             "shortId"     => '~short_id~',
                         ]
                     ];
-                    $c['outbounds'][0]['mux'] = [
+                    $c['outbounds'][$index]['mux'] = [
                         "enabled"     => false,
                         "concurrency" => -1
                     ];
                 }
                 break;
             case 'si':
-                $c['outbounds'][0]['server'] = '~domain~';
-                $c['outbounds'][0]['uuid']   = '~uid~';
+                $c['outbounds'][$index]['server'] = '~domain~';
+                $c['outbounds'][$index]['uuid']   = '~uid~';
                 if ($pac['transport'] == 'Websocket') {
-                    unset($c['outbounds'][0]['tls']['reality']);
-                    unset($c['outbounds'][0]['flow']);
-                    $c['outbounds'][0]["transport"] = [
+                    unset($c['outbounds'][$index]['tls']['reality']);
+                    unset($c['outbounds'][$index]['flow']);
+                    $c['outbounds'][$index]["transport"] = [
                         "type" => "ws",
                         "path" => "/ws"
                     ];
-                    $c['outbounds'][0]['tls']['server_name'] = '~domain~';
+                    $c['outbounds'][$index]['tls']['server_name'] = '~domain~';
                 } else {
-                    unset($c['outbounds'][0]["transport"]);
-                    $c['outbounds'][0]['flow']                         = 'xtls-rprx-vision';
-                    $c['outbounds'][0]['tls']['reality']['public_key'] = '~public_key~';
-                    $c['outbounds'][0]['tls']['server_name']           = '~server_name~';
-                    $c['outbounds'][0]['tls']['reality']['short_id']   = '~short_id~';
+                    unset($c['outbounds'][$index]["transport"]);
+                    $c['outbounds'][$index]['flow']                         = 'xtls-rprx-vision';
+                    $c['outbounds'][$index]['tls']['reality']['public_key'] = '~public_key~';
+                    $c['outbounds'][$index]['tls']['server_name']           = '~server_name~';
+                    $c['outbounds'][$index]['tls']['reality']['short_id']   = '~short_id~';
                 }
 
                 $c['route'] = $this->addRuleSet($c['route']);
@@ -5065,13 +5762,18 @@ DNS-over-HTTPS with IP:
         }
 
         $json = $this->replaceTags(json_encode($c), [
-            '"~pac~"'         => json_encode(array_keys(array_filter($pac['includelist'] ?: []))),
-            '~dns~'         => "https://$domain/dns-query/$uid",
-            '~uid~'         => $uid,
-            '~domain~'      => $domain,
-            '~short_id~'    => $xr['inbounds'][0]['streamSettings']['realitySettings']['shortIds'][0],
-            '~public_key~'  => $pac['xray'],
-            '~server_name~' => $xr['inbounds'][0]['streamSettings']['realitySettings']['serverNames'][0],
+            '"~pac~"'            => json_encode(array_keys(array_filter($pac['includelist'] ?: []))),
+            '~dns~'              => "https://$domain/dns-query/$uid",
+            '~uid~'              => $uid,
+            '~domain~'           => $domain,
+            '~short_id~'         => $xr['inbounds'][0]['streamSettings']['realitySettings']['shortIds'][0],
+            '~public_key~'       => $pac['xray'],
+            '~server_name~'      => $xr['inbounds'][0]['streamSettings']['realitySettings']['serverNames'][0],
+            '~app_outbound~'     => $pac['app_outbound'] ? 'direct' : $outbound,
+            '~process_outbound~' => $pac['process_outbound'] ? 'direct' : $outbound,
+            '~domains_outbound~' => $pac['domains_outbound'] ? 'direct' : $outbound,
+            '~final_outbound~'   => $pac['final_outbound'] ? $outbound : 'direct',
+            '~ip~'               => $this->ip,
         ]);
         $json = $this->clearEmptyRules($json);
 
@@ -5201,11 +5903,6 @@ DNS-over-HTTPS with IP:
                         "download_detour" => "direct",
                     ];
                     $route['rules'][$k]['rule_set'][] = $r['name'];
-                    switch (true) {
-                        case preg_match('#~(.+)~#', $route['rules'][$k]['outbound'], $m):
-                            $route['rules'][$k]['outbound'] = $pac[$m[1]] ? 'direct' : 'proxy';
-                            break;
-                    }
                 }
                 unset($route['rules'][$k]['createruleset']);
                 if (empty($route['rules'][$k]['rule_set'])) {
@@ -5308,23 +6005,6 @@ DNS-over-HTTPS with IP:
         ];
     }
 
-    public function adguardCheckPswd()
-    {
-        if (empty($this->getPacConf()['adpswd'])) {
-            $this->adguardChangePswd(substr(hash('md5', time()), 0, 10));
-        }
-    }
-
-    public function adguardChangePswd($pass)
-    {
-        $c = yaml_parse_file($this->adguard);
-        $c['users'][0]['password'] = password_hash($pass, PASSWORD_DEFAULT);
-        yaml_emit_file($this->adguard, $c);
-        $p = $this->getPacConf();
-        $p['adpswd'] = $pass;
-        $this->setPacConf($p);
-    }
-
     public function adguardProtect()
     {
         $h = substr(hash('sha256', $this->key), 0, 8);
@@ -5375,8 +6055,9 @@ DNS-over-HTTPS with IP:
             $text .= "DNS over HTTPS:\n<code>$ip</code>\n<code>$scheme://$domain/dns-query" . ($conf['adguardkey'] ? "/{$conf['adguardkey']}" : '') . "</code>\n\n";
             $text .= "DNS over TLS:\n<code>tls://" . ($conf['adguardkey'] ? "{$conf['adguardkey']}." : '') . "$domain</code>";
         }
+        $status = $this->i18n(exec("JSON=1 timeout 2 dnslookup google.com ad") ? 'on' : 'off');
         $safesearch = yaml_parse_file($this->adguard)['filtering']['safe_search']['enabled'];
-        $text .= "\n\nsafesearch: " . $this->i18n($safesearch ? 'on' : 'off');
+        $text .= "\n\nstatus: $status\t\tsafesearch: " . $this->i18n($safesearch ? 'on' : 'off');
         $allowedClients = yaml_parse_file($this->adguard)['dns']['allowed_clients'];
         $text .= $allowedClients ? "\n\nallowed clients: \n - " . implode("\n - ", $allowedClients) : '';
 
@@ -5416,12 +6097,18 @@ DNS-over-HTTPS with IP:
         ];
         $data[] = [
             [
-                'text'          => $this->i18n('add upstream'),
-                'callback_data' => "/addupstream",
-            ],
-            [
                 'text'          => $this->i18n('check DNS'),
                 'callback_data' => "/checkdns",
+            ],
+            [
+                'text'          => $this->i18n('reset settings'),
+                'callback_data' => "/adguardreset",
+            ],
+        ];
+        $data[] = [
+            [
+                'text'          => $this->i18n('add upstream'),
+                'callback_data' => "/addupstream",
             ],
         ];
         $upstreams = yaml_parse_file($this->adguard)['dns']['upstream_dns'];
@@ -5462,8 +6149,9 @@ DNS-over-HTTPS with IP:
             unset($c['dns']['allowed_clients']);
         } else {
             $c['dns']['allowed_clients'] = [];
-            if (!empty($pac['adguardKey'])) {
-                $c['dns']['allowed_clients'][] = $pac['adguardKey'];
+            $c['dns']['allowed_clients'][] = '10.10.0.0/24';
+            if (!empty($pac['adguardkey'])) {
+                $c['dns']['allowed_clients'][] = $pac['adguardkey'];
             }
             $c['dns']['allowed_clients'][] = getenv('WGADDRESS');
             $c['dns']['allowed_clients'][] = getenv('WG1ADDRESS');
@@ -5574,6 +6262,20 @@ DNS-over-HTTPS with IP:
         $this->delete($this->input['from'], $this->input['message_id']);
     }
 
+    public function restart()
+    {
+        $r = $this->send($this->input['from'], 'restart...');
+        file_put_contents('/update/reload_message', "{$this->input['from']}:{$r['result']['message_id']}");
+        file_put_contents('/update/key', $this->key);
+        file_put_contents('/update/curl', json_encode([
+            'chat_id'    => $this->input['chat'],
+            'message_id' => $r['result']['message_id'],
+            'text'       => '~t~'
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        file_put_contents('/update/pipe', '2');
+        $this->delete($this->input['from'], $this->input['message_id']);
+    }
+
     public function configMenu()
     {
         exec('git -C / fetch');
@@ -5597,6 +6299,10 @@ DNS-over-HTTPS with IP:
                 [
                     'text'          => $this->i18n('+ subdomain'),
                     'callback_data' => '/addSubdomain',
+                ],
+                [
+                    'text'          => $this->i18n('nip.io'),
+                    'callback_data' => '/addNipdomain',
                 ],
             ],
         ];
@@ -5637,12 +6343,6 @@ DNS-over-HTTPS with IP:
                 ];
             }
         }
-        /*$data[] = [
-            [
-                'text'          => $this->i18n('reset nginx'),
-                'callback_data' => "/resetnginx",
-            ],
-        ];*/
         $data[] = [
             [
                 'text'          => "{$this->i18n('add')} {$this->i18n('admin')}",
@@ -5703,12 +6403,12 @@ DNS-over-HTTPS with IP:
                 'text'          => $this->i18n('fake html'),
                 'callback_data' => "/addOverrideHtml",
             ],
+            [
+                'text'          => $this->i18n('ports'),
+                'callback_data' => "/ports",
+            ],
         ];
         $data[] = [
-            [
-                'text'          => $this->i18n('logs'),
-                'callback_data' => "/logs",
-            ],
             [
                 'text'          => $this->i18n('debug') . ': ' . $this->i18n($c['debug'] ? 'on' : 'off'),
                 'callback_data' => "/debug",
@@ -5718,6 +6418,10 @@ DNS-over-HTTPS with IP:
             [
                 'text'          => $this->i18n(exec('git -C / rev-list --count HEAD..@{u}') ? 'have updates' : 'no updates'),
                 'callback_data' => "/menu update",
+            ],
+            [
+                'text'          => $this->i18n('restart'),
+                'callback_data' => "/restart",
             ],
         ];
         $data[] = [
@@ -5730,6 +6434,69 @@ DNS-over-HTTPS with IP:
             'text' => implode("\n", $text),
             'data' => $data,
         ];
+    }
+
+    public function ports()
+    {
+        $text[] = 'Settings -> Ports';
+        $f = '/docker/compose';
+        $c = yaml_parse_file($f)['services'];
+        $data = [
+            [[
+                'text'          => 'Letsencrypt 80 ' . $this->i18n($c['ng'] ? 'off' : 'on'),
+                'callback_data' => "/hidePort ng",
+            ]],
+            [[
+                'text'          => 'Shadowsocks ' . getenv('SSPORT') . ' ' . $this->i18n($c['ss'] ? 'off' : 'on'),
+                'callback_data' => "/hidePort ss",
+            ]],
+            [[
+                'text'          => 'DoT 853 ' . $this->i18n($c['ad'] ? 'off' : 'on'),
+                'callback_data' => "/hidePort ad",
+            ]],
+            [[
+                'text'          => 'Wireguard-1 ' . getenv('WGPORT') . ' ' . $this->i18n($c['wg'] ? 'off' : 'on'),
+                'callback_data' => "/hidePort wg",
+            ]],
+            [[
+                'text'          => 'Wireguard-2 ' . getenv('WG1PORT') . ' ' . $this->i18n($c['wg1'] ? 'off' : 'on'),
+                'callback_data' => "/hidePort wg1",
+            ]],
+            [[
+                'text'          => 'MTProto ' . getenv('TGPORT') . ' ' . $this->i18n($c['tg'] ? 'off' : 'on'),
+                'callback_data' => "/hidePort tg",
+            ]],
+        ];
+        $data[] = [
+            [
+                'text'          => $this->i18n('back'),
+                'callback_data' => "/menu config",
+            ],
+        ];
+        $this->update(
+            $this->input['chat'],
+            $this->input['message_id'],
+            implode("\n", $text ?: ['...']),
+            $data ?: false,
+        );
+    }
+
+    public function hidePort($container)
+    {
+        $f = '/docker/compose';
+        $c = yaml_parse_file($f);
+        if (!empty($c['services'][$container])) {
+            unset($c['services'][$container]);
+        } else {
+            $c['services'][$container]['ports'] = [];
+        }
+        if (empty($c['services'])) {
+            file_put_contents($f, '');
+        } else {
+            yaml_emit_file($f, $c);
+            file_put_contents($f, str_replace('ports:', 'ports: !override', file_get_contents($f)));
+        }
+        $this->ports();
     }
 
     public function branches()
@@ -5772,24 +6539,26 @@ DNS-over-HTTPS with IP:
                 $size   = filesize("/logs/$v");
                 $data[] = [
                     [
-                        'text'          => "$v ($size)",
+                        'text'          => "$size $v",
                         'callback_data' => "/getLog $k",
                     ],
                     [
-                        'text'          => $this->i18n('clear'),
+                        'text'          => $this->i18n('clean'),
                         'callback_data' => "/clearLog $k",
-                    ],
-                    [
-                        'text'          => $this->i18n('delete'),
-                        'callback_data' => "/delLog $k",
                     ],
                 ];
             }
         }
         $data[] = [
             [
+                'text'          => $this->i18n('clean all'),
+                'callback_data' => "/cleanLog",
+            ],
+        ];
+        $data[] = [
+            [
                 'text'          => $this->i18n('back'),
-                'callback_data' => "/menu config",
+                'callback_data' => "/ipMenu",
             ],
         ];
         $this->update(
@@ -5820,6 +6589,14 @@ DNS-over-HTTPS with IP:
                 file_put_contents("/logs/$v", '');
                 break;
             }
+        }
+        $this->logs();
+    }
+
+    public function cleanLog()
+    {
+        foreach (scandir('/logs/') as $k => $v) {
+            file_put_contents("/logs/$v", '');
         }
         $this->logs();
     }
@@ -6393,7 +7170,7 @@ DNS-over-HTTPS with IP:
         var_dump($this->request('setMyCommands', json_encode($data), 1));
     }
 
-    public function send($chat, $text, ?int $to = 0, $button = false, $reply = false, $mode = 'HTML')
+    public function send($chat, $text, ?int $to = 0, $button = false, $reply = false, $mode = 'HTML', $disable_notification = false)
     {
         if ($button) {
             $extra = ['inline_keyboard' => $button];
@@ -6414,7 +7191,7 @@ DNS-over-HTTPS with IP:
                     'text'                     => "$v\n",
                     'parse_mode'               => $mode,
                     // 'disable_web_page_preview' => true,
-                    // 'disable_notification'     => !empty($to) && 0 == $k,
+                    'disable_notification'     => $disable_notification,
                     'reply_to_message_id'      => 0 == $k && $to > 0 ? $to : false,
                 ];
                 if ($k == array_key_last($tails)) {
@@ -6430,7 +7207,7 @@ DNS-over-HTTPS with IP:
                 'text'                     => $text,
                 'parse_mode'               => $mode,
                 // 'disable_web_page_preview' => true,
-                // 'disable_notification'     => !empty($to),
+                'disable_notification'     => $disable_notification,
                 'reply_to_message_id'      => $to,
             ];
             if (!empty($extra)) {

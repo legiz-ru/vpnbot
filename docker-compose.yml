@@ -29,6 +29,7 @@ services:
         volumes:
             - ./config/.profile:/root/.ashrc:ro
             - ./config/upstream.conf:/etc/nginx/nginx.conf
+            - ./config/deny:/etc/nginx/deny
             - ./scripts/start_upstream.sh:/start_upstream.sh
             - ./ssh:/ssh
             - ./config/sshd_config:/etc/ssh/sshd_config
@@ -95,7 +96,7 @@ services:
                 ipv4_address: 10.10.1.2
         logging: *default-logging
     php:
-        image: mercurykd/vpnbot-php:1.5
+        image: mercurykd/vpnbot-php:1.6
         build:
             dockerfile: dockerfile/php.dockerfile
             args:
@@ -118,6 +119,7 @@ services:
             - ./update:/update
             - ./.git:/.git
             - ./singbox_windows:/singbox
+            - ./docker-compose.override.yml:/docker/compose
             - /var/run/docker.sock:/var/run/docker.sock:ro
         environment:
             IP: ${IP}
@@ -145,7 +147,7 @@ services:
             timeout: 5s
             retries: 5
     service:
-        image: mercurykd/vpnbot-php:1.5
+        image: mercurykd/vpnbot-php:1.6
         build:
             dockerfile: dockerfile/php.dockerfile
             args:
@@ -303,7 +305,7 @@ services:
                 ipv4_address: 10.10.0.14
         logging: *default-logging
     ad:
-        image: mercurykd/vpnbot-ad:1.1
+        image: mercurykd/vpnbot-ad:1.2
         build:
             dockerfile: dockerfile/adguard.dockerfile
             args:
@@ -412,6 +414,7 @@ services:
             - ./config/sshd_config:/etc/ssh/sshd_config
             - ./config/xray.json:/xray.json
             - ./scripts/start_xray.sh:/start_xray.sh
+            - ./logs:/logs
         hostname: xray
         container_name: xray-${VER}
         depends_on:

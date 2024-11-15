@@ -68,26 +68,26 @@
         {
             "flow": "xtls-rprx-vision",
             "packet_encoding": "",
-            "server": "",
+            "server": "~domain~",
             "server_port": 443,
             "tls": {
                 "enabled": true,
                 "insecure": false,
                 "reality": {
                     "enabled": true,
-                    "public_key": "",
-                    "short_id": ""
+                    "public_key": "~public_key~",
+                    "short_id": "~short_id~"
                 },
-                "server_name": "",
+                "server_name": "~server_name~",
                 "utls": {
                     "enabled": true,
                     "fingerprint": "chrome"
                 }
             },
-            "uuid": "",
+            "uuid": "~uid~",
             "type": "vless",
             "domain_strategy": "ipv4_only",
-            "tag": "proxy"
+            "tag": "~outbound~"
         },
         {
             "type": "direct",
@@ -109,6 +109,20 @@
             {
                 "protocol": "dns",
                 "outbound": "dns-out"
+            },
+            {
+                "createruleset": [
+                    {
+                        "name": "pac",
+                        "interval": "15s",
+                        "rules": [
+                            {
+                                "domain_suffix": "~pac~"
+                            }
+                        ]
+                    }
+                ],
+                "outbound": "~domains_outbound~"
             },
             {
                 "createruleset": [
@@ -155,15 +169,6 @@
             {
                 "createruleset": [
                     {
-                        "name": "pac",
-                        "interval": "15s",
-                        "rules": [
-                            {
-                                "domain_suffix": "~pac~"
-                            }
-                        ]
-                    },
-                    {
                         "name": "warp",
                         "interval": "15s",
                         "rules": [
@@ -173,12 +178,12 @@
                         ]
                     }
                 ],
-                "outbound": "proxy"
+                "outbound": "~outbound~"
             },
             {
                 "outbound": "direct"
             }
         ],
-        "final": "direct"
+        "final": "~final_outbound~"
     }
 }
