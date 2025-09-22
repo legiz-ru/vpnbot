@@ -14,6 +14,8 @@ class Bot
     public $logs;
     public $reg;
     public $pool;
+    public $hwidStats;
+    public $hwidLimitMessage = 'HWID device limit exceeded';
 
     public function __construct($key, $i18n)
     {
@@ -31,6 +33,7 @@ class Bot
         $this->limit    = $this->getPacConf()['limitpage'] ?: 5;
         $this->adguard  = '/config/AdGuardHome.yaml';
         $this->update   = '/update/json';
+        $this->hwidStats = '/config/hwid_devices.json';
         $this->logs = [
             'nginx_default_access',
             'nginx_domain_access',
@@ -167,6 +170,12 @@ class Bot
                 break;
             case preg_match('~^/setIpLimit$~', $this->input['callback'], $m):
                 $this->setIpLimit();
+                break;
+            case preg_match('~^/toggleHwidLimit$~', $this->input['callback'], $m):
+                $this->toggleHwidLimit();
+                break;
+            case preg_match('~^/setHwidLimit$~', $this->input['callback'], $m):
+                $this->setHwidLimit();
                 break;
             case preg_match('~^/searchLogs (.+)$~', $this->input['message'], $m):
                 $this->searchLogs($m[1]);
@@ -401,6 +410,12 @@ class Bot
                 break;
             case preg_match('~^/resetXrUser (\d+)$~', $this->input['callback'], $m):
                 $this->resetXrUser($m[1]);
+                break;
+            case preg_match('~^/clearHwid (\d+)$~', $this->input['callback'], $m):
+                $this->clearHwidDevices($m[1]);
+                break;
+            case preg_match('~^/delHwid (.+)$~', $this->input['callback'], $m):
+                $this->deleteHwidDevice($m[1]);
                 break;
             case preg_match('~^/resetXrStats$~', $this->input['callback'], $m):
                 $this->resetXrStats();
@@ -2341,6 +2356,73 @@ class Bot
         return file_put_contents($this->pac, json_encode($conf, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     }
 
+    public function getHwidStats(): array
+    {
+        if (!file_exists($this->hwidStats)) {
+            return [];
+        }
+        $stats = json_decode(file_get_contents($this->hwidStats), true);
+        return is_array($stats) ? $stats : [];
+    }
+
+    public function setHwidStats(array $stats): void
+    {
+        $dir = dirname($this->hwidStats);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0777, true);
+        }
+        file_put_contents(
+            $this->hwidStats,
+            json_encode($stats, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        );
+    }
+
+    public function handleHwidAccess(string $uid, string $email, bool $enforce, int $limit): void
+    {
+        $limit = max(0, $limit);
+        $hwid = trim($_SERVER['HTTP_X_HWID'] ?? '');
+        if ($enforce && $limit > 0 && $hwid === '') {
+            $this->denyHwidAccess();
+        }
+        if ($hwid === '') {
+            return;
+        }
+
+        $stats   = $this->getHwidStats();
+        $devices = $stats[$uid]['devices'] ?? [];
+
+        if ($enforce && !isset($devices[$hwid]) && $limit > 0 && count($devices) >= $limit) {
+            $this->denyHwidAccess();
+        }
+
+        $entry = $devices[$hwid] ?? [];
+        $devices[$hwid] = [
+            'first_seen'   => $entry['first_seen'] ?? time(),
+            'last_seen'    => time(),
+            'last_ip'      => $_SERVER['REMOTE_ADDR'] ?? '',
+            'device_os'    => $_SERVER['HTTP_X_DEVICE_OS'] ?? '',
+            'os_version'   => $_SERVER['HTTP_X_VER_OS'] ?? '',
+            'device_model' => $_SERVER['HTTP_X_DEVICE_MODEL'] ?? '',
+            'user_agent'   => $_SERVER['HTTP_USER_AGENT'] ?? '',
+            'requests'     => ($entry['requests'] ?? 0) + 1,
+        ];
+
+        $stats[$uid] = [
+            'email'   => $email,
+            'devices' => $devices,
+        ];
+
+        $this->setHwidStats($stats);
+    }
+
+    public function denyHwidAccess(): void
+    {
+        header('announce: ' . $this->hwidLimitMessage);
+        http_response_code(404);
+        echo $this->hwidLimitMessage;
+        exit;
+    }
+
     public function domain()
     {
         $r = $this->send(
@@ -2484,6 +2566,45 @@ class Bot
             'callback'      => 'switchIpLimit',
             'args'          => [],
         ];
+    }
+
+    public function setHwidLimit()
+    {
+        $r = $this->send(
+            $this->input['chat'],
+            "@{$this->input['username']} enter hwid devices count",
+            $this->input['message_id'],
+            reply: 'enter hwid devices count',
+        );
+        $_SESSION['reply'][$r['result']['message_id']] = [
+            'start_message' => $this->input['message_id'],
+            'callback'      => 'saveHwidLimit',
+            'args'          => [],
+        ];
+    }
+
+    public function saveHwidLimit($count)
+    {
+        $count = (int) trim($count);
+        $c     = $this->getPacConf();
+        if ($count <= 0) {
+            unset($c['hwid_limit_count']);
+        } else {
+            $c['hwid_limit_count'] = $count;
+        }
+        $this->setPacConf($c);
+        $this->ipMenu();
+    }
+
+    public function toggleHwidLimit()
+    {
+        $c = $this->getPacConf();
+        $c['hwid_limit_enabled'] = $c['hwid_limit_enabled'] ? 0 : 1;
+        if (!empty($c['hwid_limit_enabled']) && empty($c['hwid_limit_count'])) {
+            $c['hwid_limit_count'] = 1;
+        }
+        $this->setPacConf($c);
+        $this->ipMenu();
     }
 
     public function addLinkDomain()
@@ -5678,6 +5799,46 @@ DNS-over-HTTPS with IP:
         $this->userXr($i);
     }
 
+    public function clearHwidDevices($i)
+    {
+        $xray = $this->getXray();
+        $uid  = $xray['inbounds'][0]['settings']['clients'][$i]['id'];
+        $stats = $this->getHwidStats();
+        if (isset($stats[$uid])) {
+            unset($stats[$uid]);
+            $this->setHwidStats($stats);
+        }
+        $this->userXr($i);
+    }
+
+    public function deleteHwidDevice($arg)
+    {
+        [$index, $encoded] = array_pad(explode('_', $arg, 2), 2, null);
+        $index             = (int) $index;
+        if ($encoded === null) {
+            $this->userXr($index);
+            return;
+        }
+        $hwid = base64_decode($encoded, true);
+        if ($hwid === false) {
+            $this->userXr($index);
+            return;
+        }
+        $xray = $this->getXray();
+        $uid  = $xray['inbounds'][0]['settings']['clients'][$index]['id'];
+        $stats = $this->getHwidStats();
+        if (isset($stats[$uid]['devices'][$hwid])) {
+            unset($stats[$uid]['devices'][$hwid]);
+            if (empty($stats[$uid]['devices'])) {
+                unset($stats[$uid]);
+            } else {
+                $stats[$uid]['email'] = $xray['inbounds'][0]['settings']['clients'][$index]['email'];
+            }
+            $this->setHwidStats($stats);
+        }
+        $this->userXr($index);
+    }
+
     public function resetXrStats($nomenu = false)
     {
         $this->restartXray($this->getXray());
@@ -6029,6 +6190,18 @@ DNS-over-HTTPS with IP:
             [
                 'text'          => $this->i18n('ip limit') . ' ' . ($p['ip_limit'] ? ": {$p['ip_limit']} sec & $ip_count" : $this->i18n('off')),
                 'callback_data' => "/setIpLimit",
+            ],
+        ];
+        $hwidCount   = $p['hwid_limit_count'] ?: 1;
+        $hwidEnabled = !empty($p['hwid_limit_enabled']);
+        $data[]      = [
+            [
+                'text'          => $this->i18n('hwid limit') . ' ' . ($hwidEnabled ? ": $hwidCount" : $this->i18n('off')),
+                'callback_data' => "/toggleHwidLimit",
+            ],
+            [
+                'text'          => $this->i18n('set hwid limit'),
+                'callback_data' => "/setHwidLimit",
             ],
         ];
         if ($p['transport'] == 'Reality') {
@@ -6459,12 +6632,60 @@ DNS-over-HTTPS with IP:
         $st       = $this->getXrayStats();
         $download = $this->getBytes($st['users'][$i]['global']['download'] + $st['users'][$i]['session']['download']);
         $upload   = $this->getBytes($st['users'][$i]['global']['upload'] + $st['users'][$i]['session']['upload']);
+        $hwidStats = $this->getHwidStats();
+        $devices   = $hwidStats[$c['id']]['devices'] ?? [];
+        $limitText = !empty($pac['hwid_limit_enabled']) ? ($pac['hwid_limit_count'] ?: 1) : $this->i18n('off');
+        $text[]    = $this->i18n('hwid limit') . ': ' . $limitText;
+        if (!empty($devices)) {
+            $text[] = '';
+            $text[] = $this->i18n('hwid devices') . ':';
+            foreach ($devices as $hwidValue => $info) {
+                $hwidSafe  = htmlspecialchars($hwidValue, ENT_HTML5, 'UTF-8');
+                $deviceRow = [];
+                $modelInfo = array_filter([
+                    $info['device_model'] ?? '',
+                    $info['device_os'] ?? '',
+                    $info['os_version'] ?? '',
+                ]);
+                if (!empty($modelInfo)) {
+                    $deviceRow[] = implode(' ', $modelInfo);
+                }
+                if (!empty($info['last_ip'])) {
+                    $deviceRow[] = 'IP: ' . $info['last_ip'];
+                }
+                if (!empty($info['requests'])) {
+                    $deviceRow[] = 'req: ' . $info['requests'];
+                }
+                if (!empty($info['last_seen'])) {
+                    $deviceRow[] = date('Y-m-d H:i', $info['last_seen']);
+                }
+                $text[] = "<code>{$hwidSafe}</code>" . ($deviceRow ? ' — ' . implode(', ', $deviceRow) : '');
+            }
+        } else {
+            $text[] = $this->i18n('hwid devices') . ': ' . $this->i18n('empty');
+        }
         $data[]   = [
             [
                 'text'          => $this->i18n('reset stats') . ": ↓$download  ↑$upload",
                 'callback_data' => "/resetXrUser $i",
             ],
         ];
+        if (!empty($devices)) {
+            $data[] = [
+                [
+                    'text'          => $this->i18n('clear devices'),
+                    'callback_data' => "/clearHwid $i",
+                ],
+            ];
+            foreach ($devices as $hwidValue => $info) {
+                $data[] = [
+                    [
+                        'text'          => $this->i18n('delete') . ' ' . substr($hwidValue, 0, 8),
+                        'callback_data' => "/delHwid {$i}_" . base64_encode($hwidValue),
+                    ],
+                ];
+            }
+        }
         $data[] = [
             [
                 'text'    => $this->i18n('v2ray'),
@@ -6572,6 +6793,10 @@ DNS-over-HTTPS with IP:
                 $expire = $v['time'];
                 break;
             }
+        }
+        if (!empty($uid)) {
+            $limit = (int) ($pac['hwid_limit_count'] ?? 1);
+            $this->handleHwidAccess($uid, $email, !empty($pac['hwid_limit_enabled']), $limit);
         }
         $suburl   = "<a href='$scheme://{$domain}/pac$hash/sub?id={$uid}'>subscription</a>";
         $download = $this->getBytes($st['users'][$k]['global']['download'] + $st['users'][$k]['session']['download']);

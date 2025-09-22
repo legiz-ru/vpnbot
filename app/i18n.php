@@ -53,6 +53,26 @@ $i = [
         'en' => 'add',
         'ru' => 'добавить',
     ],
+    'hwid limit'           => [
+        'en' => 'HWID limit',
+        'ru' => 'Лимит устройств',
+    ],
+    'set hwid limit'       => [
+        'en' => 'set HWID limit',
+        'ru' => 'установить лимит устройств',
+    ],
+    'hwid devices'         => [
+        'en' => 'HWID devices',
+        'ru' => 'Устройства HWID',
+    ],
+    'clear devices'        => [
+        'en' => 'clear devices',
+        'ru' => 'очистить устройства',
+    ],
+    'empty'                => [
+        'en' => 'empty',
+        'ru' => 'нет данных',
+    ],
     'donate'               => [
         'en' => 'donate',
         'ru' => 'донат',
