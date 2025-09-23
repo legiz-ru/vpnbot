@@ -6767,38 +6767,6 @@ DNS-over-HTTPS with IP:
         $st       = $this->getXrayStats();
         $download = $this->getBytes($st['users'][$i]['global']['download'] + $st['users'][$i]['session']['download']);
         $upload   = $this->getBytes($st['users'][$i]['global']['upload'] + $st['users'][$i]['session']['upload']);
-        $hwidStats = $this->getHwidStats();
-        $devices   = $hwidStats[$c['id']]['devices'] ?? [];
-        $limitText = !empty($pac['hwid_limit_enabled']) ? ($pac['hwid_limit_count'] ?: 1) : $this->i18n('off');
-        $text[]    = $this->i18n('hwid limit') . ': ' . $limitText;
-        if (!empty($devices)) {
-            $text[] = '';
-            $text[] = $this->i18n('hwid devices') . ':';
-            foreach ($devices as $hwidValue => $info) {
-                $hwidSafe  = htmlspecialchars($hwidValue, ENT_HTML5, 'UTF-8');
-                $deviceRow = [];
-                $modelInfo = array_filter([
-                    $info['device_model'] ?? '',
-                    $info['device_os'] ?? '',
-                    $info['os_version'] ?? '',
-                ]);
-                if (!empty($modelInfo)) {
-                    $deviceRow[] = implode(' ', $modelInfo);
-                }
-                if (!empty($info['requests'])) {
-                    $deviceRow[] = 'req: ' . $info['requests'];
-                }
-                if (!empty($info['last_seen'])) {
-                    $deviceRow[] = date('Y-m-d H:i', $info['last_seen']);
-                }
-                if (!empty($info['user_agent'])) {
-                    $deviceRow[] = htmlspecialchars($info['user_agent'], ENT_HTML5 | ENT_SUBSTITUTE, 'UTF-8');
-                }
-                $text[] = "<code>{$hwidSafe}</code>" . ($deviceRow ? ' — ' . implode(', ', $deviceRow) : '');
-            }
-        } else {
-            $text[] = $this->i18n('hwid devices') . ': ' . $this->i18n('empty');
-        }
         $data[]   = [
             [
                 'text'          => $this->i18n('reset stats') . ": ↓$download  ↑$upload",
