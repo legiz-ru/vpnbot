@@ -173,11 +173,11 @@ class Bot
             case preg_match('~^/hwidLimit$~', $this->input['callback'], $m):
                 $this->hwidLimit();
                 break;
-            case preg_match('~^/toggleHwidLimit$~', $this->input['callback'], $m):
-                $this->toggleHwidLimit();
+            case preg_match('~^/toggleHwidLimit(?: (\w+))?$~', $this->input['callback'], $m):
+                $this->toggleHwidLimit($m[1] ?? null);
                 break;
-            case preg_match('~^/setHwidDevices$~', $this->input['callback'], $m):
-                $this->setHwidDevices();
+            case preg_match('~^/setHwidDevices(?: (\w+))?$~', $this->input['callback'], $m):
+                $this->setHwidDevices($m[1] ?? null);
                 break;
             case preg_match('~^/hwidUser (\d+)(?:_(\d+))?$~', $this->input['callback'], $m):
                 $this->hwidUser($m[1], $m[2] ?? 0);
@@ -4781,7 +4781,7 @@ DNS-over-HTTPS with IP:
         );
     }
 
-    public function toggleHwidLimit()
+    public function toggleHwidLimit($context = null)
     {
         $pac = $this->getPacConf();
         $pac['hwid_limit_enabled'] = $pac['hwid_limit_enabled'] ? 0 : 1;
@@ -4790,10 +4790,14 @@ DNS-over-HTTPS with IP:
         }
         $this->setPacConf($pac);
         $this->answer($this->input['callback_id'], $this->i18n('hwid notice'), true);
-        $this->hwidLimit();
+        if ($context === 'xray') {
+            $this->xray();
+        } else {
+            $this->hwidLimit();
+        }
     }
 
-    public function setHwidDevices()
+    public function setHwidDevices($context = null)
     {
         $r = $this->send(
             $this->input['chat'],
@@ -4804,11 +4808,11 @@ DNS-over-HTTPS with IP:
         $_SESSION['reply'][$r['result']['message_id']] = [
             'start_message' => $this->input['message_id'],
             'callback'      => 'saveHwidDevices',
-            'args'          => [],
+            'args'          => [$context],
         ];
     }
 
-    public function saveHwidDevices($count)
+    public function saveHwidDevices($count, $context = null)
     {
         $count = (int) $count;
         if ($count <= 0) {
@@ -4818,7 +4822,11 @@ DNS-over-HTTPS with IP:
         $pac['hwid_device_count'] = $count;
         $this->setPacConf($pac);
         $this->send($this->input['chat'], $this->i18n('hwid notice'), $this->input['message_id']);
-        $this->hwidLimit();
+        if ($context === 'xray') {
+            $this->xray();
+        } else {
+            $this->hwidLimit();
+        }
     }
 
     public function getHwidStorage()
@@ -4873,6 +4881,45 @@ DNS-over-HTTPS with IP:
         }
     }
 
+    protected function getHwidTokenScope($index)
+    {
+        return ($this->input['chat'] ?? 'global') . ':' . $index;
+    }
+
+    protected function rememberHwidToken($scope, $hwid)
+    {
+        if (!isset($_SESSION['hwidTokens'])) {
+            $_SESSION['hwidTokens'] = [];
+        }
+        if (!isset($_SESSION['hwidTokens'][$scope])) {
+            $_SESSION['hwidTokens'][$scope] = [];
+        }
+        do {
+            try {
+                $token = bin2hex(random_bytes(5));
+            } catch (\Throwable $e) {
+                $token = substr(hash('sha256', $hwid . microtime(true)), 0, 10);
+            }
+        } while (isset($_SESSION['hwidTokens'][$scope][$token]));
+
+        $_SESSION['hwidTokens'][$scope][$token] = $hwid;
+
+        return $token;
+    }
+
+    protected function resolveHwidToken($scope, $token)
+    {
+        if (isset($_SESSION['hwidTokens'][$scope][$token])) {
+            $hwid = $_SESSION['hwidTokens'][$scope][$token];
+            unset($_SESSION['hwidTokens'][$scope][$token]);
+            return $hwid;
+        }
+
+        $decoded = base64_decode($token, true);
+
+        return $decoded !== false ? $decoded : '';
+    }
+
     public function processHwidRequest(array $client)
     {
         $pac = $this->getPacConf();
@@ -4900,7 +4947,6 @@ DNS-over-HTTPS with IP:
             } else {
                 $this->setHwidDevice($client['id'], $hwid, [
                     'time'         => time(),
-                    'ip'           => $_SERVER['REMOTE_ADDR'],
                     'user_agent'   => $_SERVER['HTTP_USER_AGENT'] ?? '',
                     'device_os'    => $_SERVER['HTTP_X_DEVICE_OS'] ?? '',
                     'os_version'   => $_SERVER['HTTP_X_VER_OS'] ?? '',
@@ -6227,11 +6273,23 @@ DNS-over-HTTPS with IP:
                 'callback_data' => "/changeTransport 1",
             ],
         ];
-        $ip_count = $p['ip_count'] ?: 1;
+        $ip_count      = $p['ip_count'] ?: 1;
+        $hwidEnabled   = !empty($p['hwid_limit_enabled']);
+        $defaultHwids  = max(1, (int) ($p['hwid_device_count'] ?: 1));
         $data[] = [
             [
                 'text'          => $this->i18n('ip limit') . ' ' . ($p['ip_limit'] ? ": {$p['ip_limit']} sec & $ip_count" : $this->i18n('off')),
                 'callback_data' => "/setIpLimit",
+            ],
+        ];
+        $data[] = [
+            [
+                'text'          => $this->i18n('hwid limit') . ': ' . $this->i18n($hwidEnabled ? 'on' : 'off') . " ({$defaultHwids})",
+                'callback_data' => '/toggleHwidLimit xray',
+            ],
+            [
+                'text'          => $this->i18n('set hwid devices count'),
+                'callback_data' => '/setHwidDevices xray',
             ],
         ];
         if ($p['transport'] == 'Reality') {
@@ -6766,6 +6824,11 @@ DNS-over-HTTPS with IP:
         $pac    = $this->getPacConf();
 
         $devices = $this->getHwidDevicesByUser($client['id']);
+        $scope   = $this->getHwidTokenScope($i);
+        if (!isset($_SESSION['hwidTokens'])) {
+            $_SESSION['hwidTokens'] = [];
+        }
+        $_SESSION['hwidTokens'][$scope] = [];
         uasort($devices, fn($a, $b) => ($b['time'] ?? 0) <=> ($a['time'] ?? 0));
         $hwids        = array_keys($devices);
         $perPage      = max(1, $this->limit ?: 5);
@@ -6826,9 +6889,6 @@ DNS-over-HTTPS with IP:
             if (!empty($details)) {
                 $line .= ' - ' . htmlspecialchars(implode(' ', $details), ENT_HTML5, 'UTF-8');
             }
-            if (!empty($info['ip'])) {
-                $line .= ' [' . htmlspecialchars($info['ip'], ENT_HTML5, 'UTF-8') . ']';
-            }
             if (!empty($info['time'])) {
                 $line .= ' (' . date('d.m.Y H:i', $info['time']) . ')';
             }
@@ -6836,10 +6896,11 @@ DNS-over-HTTPS with IP:
             if (!empty($info['user_agent'])) {
                 $text[] = 'UA: ' . htmlspecialchars($info['user_agent'], ENT_HTML5, 'UTF-8');
             }
+            $token = $this->rememberHwidToken($scope, $hwid);
             $data[] = [
                 [
                     'text'          => '🗑 ' . $number,
-                    'callback_data' => "/hwidUserDel {$i}_{$page} " . base64_encode($hwid),
+                    'callback_data' => "/hwidUserDel {$i}_{$page} $token",
                 ],
             ];
         }
@@ -6929,9 +6990,10 @@ DNS-over-HTTPS with IP:
     public function hwidUserDel($i, $page, $hwid)
     {
         $xray = $this->getXray();
-        $uid  = $xray['inbounds'][0]['settings']['clients'][$i]['id'];
-        $decoded = base64_decode($hwid, true);
-        if ($decoded !== false && $decoded !== '') {
+        $uid    = $xray['inbounds'][0]['settings']['clients'][$i]['id'];
+        $scope  = $this->getHwidTokenScope($i);
+        $decoded = $this->resolveHwidToken($scope, $hwid);
+        if ($decoded !== '') {
             $this->deleteHwidDevice($uid, $decoded);
         }
         $this->hwidUser($i, $page);
