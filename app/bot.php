@@ -33,7 +33,7 @@ class Bot
         $this->limit    = $this->getPacConf()['limitpage'] ?: 5;
         $this->adguard  = '/config/AdGuardHome.yaml';
         $this->update   = '/update/json';
-        $this->hwidStats = '/root/configs/hwid_devices.json';
+        $this->hwidStats = '/configs/hwid_devices.json';
         $this->logs = [
             'nginx_default_access',
             'nginx_domain_access',
@@ -2362,16 +2362,20 @@ class Bot
     public function getHwidStats(): array
     {
         if (!file_exists($this->hwidStats)) {
-            $legacyPath = '/config/hwid_devices.json';
-            if (file_exists($legacyPath)) {
-                $legacyContents = file_get_contents($legacyPath);
-                if ($legacyContents !== false && $legacyContents !== '') {
-                    $legacyStats = json_decode($legacyContents, true);
-                    if (is_array($legacyStats)) {
-                        $this->setHwidStats($legacyStats);
-                        return $legacyStats;
-                    }
+            foreach (['/root/configs/hwid_devices.json', '/config/hwid_devices.json'] as $legacyPath) {
+                if ($legacyPath === $this->hwidStats || !file_exists($legacyPath)) {
+                    continue;
                 }
+                $legacyContents = file_get_contents($legacyPath);
+                if ($legacyContents === false || $legacyContents === '') {
+                    continue;
+                }
+                $legacyStats = json_decode($legacyContents, true);
+                if (!is_array($legacyStats)) {
+                    continue;
+                }
+                $this->setHwidStats($legacyStats);
+                return $legacyStats;
             }
             return [];
         }
