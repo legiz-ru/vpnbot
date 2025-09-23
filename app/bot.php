@@ -5892,6 +5892,9 @@ DNS-over-HTTPS with IP:
             $this->setHwidStats($stats);
         }
         $menuArg = $uid ? $index . '_' . base64_encode($uid) : (string) $index;
+        if (!empty($_SESSION['hwid_device_map'][$menuArg])) {
+            unset($_SESSION['hwid_device_map'][$menuArg]);
+        }
         if ($returnToMenu) {
             $this->hwidDevicesMenu($menuArg);
             return;
@@ -5901,13 +5904,26 @@ DNS-over-HTTPS with IP:
 
     public function deleteHwidDevice($arg, $returnToMenu = false)
     {
-        $parts = explode('_', $arg, 3);
-        $indexPart = $parts[0] ?? '';
-        $clientIdEncoded = count($parts) === 3 ? $parts[1] : null;
-        $hwidEncoded     = count($parts) === 3 ? $parts[2] : ($parts[1] ?? null);
+        $deviceToken = null;
+        if (false !== ($hashPos = strpos($arg, '#'))) {
+            $deviceToken = substr($arg, $hashPos + 1);
+            $arg        = substr($arg, 0, $hashPos);
+        }
+
+        if ($deviceToken === null) {
+            $parts = explode('_', $arg, 3);
+            $indexPart       = $parts[0] ?? '';
+            $clientIdEncoded = count($parts) === 3 ? $parts[1] : null;
+            $hwidEncoded     = count($parts) === 3 ? $parts[2] : ($parts[1] ?? null);
+        } else {
+            $parts = explode('_', $arg, 2);
+            $indexPart       = $parts[0] ?? '';
+            $clientIdEncoded = $parts[1] ?? null;
+            $hwidEncoded     = null;
+        }
 
         $clientArg = $indexPart;
-        if ($clientIdEncoded !== null) {
+        if ($clientIdEncoded !== null && $clientIdEncoded !== '') {
             $clientArg .= '_' . $clientIdEncoded;
         }
 
@@ -5921,25 +5937,39 @@ DNS-over-HTTPS with IP:
             $this->xray();
             return;
         }
-        if ($hwidEncoded === null) {
-            $menuArg = $clientId ? $index . '_' . base64_encode($clientId) : (string) $index;
-            if ($returnToMenu) {
-                $this->hwidDevicesMenu($menuArg);
+        $menuArg = $clientId ? $index . '_' . base64_encode($clientId) : (string) $index;
+
+        if ($deviceToken === null) {
+            if ($hwidEncoded === null) {
+                if ($returnToMenu) {
+                    $this->hwidDevicesMenu($menuArg);
+                    return;
+                }
+                $this->userXr($index);
                 return;
             }
-            $this->userXr($index);
-            return;
-        }
-        $hwid = base64_decode($hwidEncoded, true);
-        if ($hwid === false) {
-            $menuArg = $clientId ? $index . '_' . base64_encode($clientId) : (string) $index;
-            if ($returnToMenu) {
-                $this->hwidDevicesMenu($menuArg);
+            $hwid = base64_decode($hwidEncoded, true);
+            if ($hwid === false) {
+                if ($returnToMenu) {
+                    $this->hwidDevicesMenu($menuArg);
+                    return;
+                }
+                $this->userXr($index);
                 return;
             }
-            $this->userXr($index);
-            return;
+        } else {
+            $map = $_SESSION['hwid_device_map'][$menuArg] ?? [];
+            if (!array_key_exists($deviceToken, $map)) {
+                if ($returnToMenu) {
+                    $this->hwidDevicesMenu($menuArg);
+                    return;
+                }
+                $this->userXr($index);
+                return;
+            }
+            $hwid = $map[$deviceToken];
         }
+
         $uid  = $clientId ?: ($client['id'] ?? '');
         $stats = $this->getHwidStats();
         if (isset($stats[$uid]['devices'][$hwid])) {
@@ -5951,7 +5981,9 @@ DNS-over-HTTPS with IP:
             }
             $this->setHwidStats($stats);
         }
-        $menuArg = $uid ? $index . '_' . base64_encode($uid) : (string) $index;
+        if (!empty($_SESSION['hwid_device_map'][$menuArg])) {
+            unset($_SESSION['hwid_device_map'][$menuArg]);
+        }
         if ($returnToMenu) {
             $this->hwidDevicesMenu($menuArg);
             return;
@@ -5982,10 +6014,16 @@ DNS-over-HTTPS with IP:
         $text[]   = $this->i18n('hwid devices') . ' — ' . $client['email'];
         $text[]   = $this->i18n('hwid limit') . ': ' . $limit;
         $text[]   = $this->i18n('hwid limit warning');
+        if (!isset($_SESSION['hwid_device_map'])) {
+            $_SESSION['hwid_device_map'] = [];
+        }
+        $_SESSION['hwid_device_map'][$menuArg] = array_keys($devices);
+
         if (!empty($devices)) {
             $text[] = '';
-            foreach ($devices as $hwidValue => $info) {
-                $hwidSafe  = htmlspecialchars($hwidValue, ENT_HTML5, 'UTF-8');
+            foreach ($_SESSION['hwid_device_map'][$menuArg] as $idx => $hwidValue) {
+                $info     = $devices[$hwidValue] ?? [];
+                $hwidSafe = htmlspecialchars($hwidValue, ENT_HTML5, 'UTF-8');
                 $deviceRow = [];
                 $modelInfo = array_filter([
                     $info['device_model'] ?? '',
@@ -6013,11 +6051,11 @@ DNS-over-HTTPS with IP:
 
         $data = [];
         if (!empty($devices)) {
-            foreach ($devices as $hwidValue => $info) {
+            foreach ($_SESSION['hwid_device_map'][$menuArg] as $idx => $hwidValue) {
                 $data[] = [
                     [
                         'text'          => $this->i18n('delete') . ' ' . substr($hwidValue, 0, 8),
-                        'callback_data' => "/delHwid {$menuArg}_" . base64_encode($hwidValue) . ' menu',
+                        'callback_data' => "/delHwid {$menuArg}#{$idx} menu",
                     ],
                 ];
             }
