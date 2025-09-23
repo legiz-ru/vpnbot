@@ -32,7 +32,7 @@ class Bot
         $this->limit    = $this->getPacConf()['limitpage'] ?: 5;
         $this->adguard  = '/config/AdGuardHome.yaml';
         $this->update   = '/update/json';
-        $this->hwid     = '/configs/hwid.json';
+        $this->hwid     = '/config/hwid.json';
         $this->logs = [
             'nginx_default_access',
             'nginx_domain_access',
