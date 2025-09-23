@@ -4934,34 +4934,28 @@ DNS-over-HTTPS with IP:
 
         $devices = $this->getHwidDevicesByUser($client['id']);
         $hwid    = trim($_SERVER['HTTP_X_HWID'] ?? '');
-        $over    = false;
 
         if ($hwid === '') {
-            if (count($devices) >= $limit) {
-                $over = true;
-            }
-        } else {
-            $isNew = !isset($devices[$hwid]);
-            if ($isNew && count($devices) >= $limit) {
-                $over = true;
-            } else {
-                $this->setHwidDevice($client['id'], $hwid, [
-                    'time'         => time(),
-                    'user_agent'   => $_SERVER['HTTP_USER_AGENT'] ?? '',
-                    'device_os'    => $_SERVER['HTTP_X_DEVICE_OS'] ?? '',
-                    'os_version'   => $_SERVER['HTTP_X_VER_OS'] ?? '',
-                    'device_model' => $_SERVER['HTTP_X_DEVICE_MODEL'] ?? '',
-                ]);
-            }
+            return true;
         }
 
-        if ($over) {
+        $isNew = !isset($devices[$hwid]);
+
+        if ($isNew && count($devices) >= $limit) {
             $message = 'HWID device limit exceeded';
             header('announce: base64:' . base64_encode($message));
             header('X-HWID-Status: ' . $message);
             header('HTTP/1.1 429 Too Many Requests', true, 429);
             return false;
         }
+
+        $this->setHwidDevice($client['id'], $hwid, [
+            'time'         => time(),
+            'user_agent'   => $_SERVER['HTTP_USER_AGENT'] ?? '',
+            'device_os'    => $_SERVER['HTTP_X_DEVICE_OS'] ?? '',
+            'os_version'   => $_SERVER['HTTP_X_VER_OS'] ?? '',
+            'device_model' => $_SERVER['HTTP_X_DEVICE_MODEL'] ?? '',
+        ]);
 
         return true;
     }
