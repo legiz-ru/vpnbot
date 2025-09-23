@@ -2458,21 +2458,25 @@ class Bot
     {
         [$indexPart, $encodedId] = array_pad(explode('_', $arg, 2), 2, null);
         $index = (int) $indexPart;
-        $clientId = null;
+        $requestedId = null;
         if ($encodedId !== null && $encodedId !== '') {
             $decoded = base64_decode($encodedId, true);
             if ($decoded !== false) {
-                $clientId = $decoded;
+                $requestedId = $decoded;
             }
         }
 
-        $xray = $this->getXray();
+        $xray    = $this->getXray();
         $clients = $xray['inbounds'][0]['settings']['clients'] ?? [];
+        $stats   = null;
 
-        if ($clientId !== null) {
+        if ($requestedId !== null) {
             foreach ($clients as $idx => $client) {
-                if (!empty($client['id']) && $client['id'] === $clientId) {
-                    return [$idx, $client, $clientId];
+                if (!empty($client['id']) && $client['id'] === $requestedId) {
+                    $clientId = $client['id'];
+                    $statsKey = $this->resolveHwidStatsKey($client, $clientId, $stats);
+
+                    return [$idx, $client, $clientId, $statsKey];
                 }
             }
         }
@@ -2481,10 +2485,45 @@ class Bot
             return null;
         }
 
-        $client = $clients[$index];
-        $clientId = $client['id'] ?? ($clientId ?? '');
+        $client   = $clients[$index];
+        $clientId = $client['id'] ?? ($requestedId ?? '');
+        $statsKey = $this->resolveHwidStatsKey($client, $clientId, $stats);
 
-        return [$index, $client, $clientId];
+        return [$index, $client, $clientId, $statsKey];
+    }
+
+    private function resolveHwidStatsKey(array $client, ?string $candidate, ?array &$stats = null): string
+    {
+        if ($stats === null) {
+            $stats = $this->getHwidStats();
+        }
+
+        $possible = [];
+        if (!empty($candidate)) {
+            $possible[] = $candidate;
+        }
+        if (!empty($client['id'])) {
+            $possible[] = $client['id'];
+        }
+
+        foreach ($possible as $uid) {
+            if ($uid !== '' && isset($stats[$uid])) {
+                return (string) $uid;
+            }
+        }
+
+        if (!empty($client['email'])) {
+            foreach ($stats as $key => $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+                if (($entry['email'] ?? '') === $client['email']) {
+                    return (string) $key;
+                }
+            }
+        }
+
+        return $candidate ?? '';
     }
 
     public function domain()
@@ -5880,18 +5919,18 @@ DNS-over-HTTPS with IP:
             $this->xray();
             return;
         }
-        [$index, $client, $clientId] = $resolved;
+        [$index, $client, $clientId, $statsKey] = $resolved;
         if (empty($client)) {
             $this->xray();
             return;
         }
-        $uid  = $clientId ?: ($client['id'] ?? '');
+        $uidKey = $statsKey !== '' ? $statsKey : ($clientId ?: ($client['id'] ?? ''));
         $stats = $this->getHwidStats();
-        if (isset($stats[$uid])) {
-            unset($stats[$uid]);
+        if ($uidKey !== '' && isset($stats[$uidKey])) {
+            unset($stats[$uidKey]);
             $this->setHwidStats($stats);
         }
-        $menuArg = $uid ? $index . '_' . base64_encode($uid) : (string) $index;
+        $menuArg = $clientId ? $index . '_' . base64_encode($clientId) : (string) $index;
         if (!empty($_SESSION['hwid_device_map'][$menuArg])) {
             unset($_SESSION['hwid_device_map'][$menuArg]);
         }
@@ -5932,7 +5971,7 @@ DNS-over-HTTPS with IP:
             $this->xray();
             return;
         }
-        [$index, $client, $clientId] = $resolved;
+        [$index, $client, $clientId, $statsKey] = $resolved;
         if (empty($client)) {
             $this->xray();
             return;
@@ -5970,14 +6009,14 @@ DNS-over-HTTPS with IP:
             $hwid = $map[$deviceToken];
         }
 
-        $uid  = $clientId ?: ($client['id'] ?? '');
+        $uidKey = $statsKey !== '' ? $statsKey : ($clientId ?: ($client['id'] ?? ''));
         $stats = $this->getHwidStats();
-        if (isset($stats[$uid]['devices'][$hwid])) {
-            unset($stats[$uid]['devices'][$hwid]);
-            if (empty($stats[$uid]['devices'])) {
-                unset($stats[$uid]);
+        if ($uidKey !== '' && isset($stats[$uidKey]['devices'][$hwid])) {
+            unset($stats[$uidKey]['devices'][$hwid]);
+            if (empty($stats[$uidKey]['devices'])) {
+                unset($stats[$uidKey]);
             } else {
-                $stats[$uid]['email'] = $client['email'];
+                $stats[$uidKey]['email'] = $client['email'];
             }
             $this->setHwidStats($stats);
         }
@@ -5999,7 +6038,7 @@ DNS-over-HTTPS with IP:
             return;
         }
 
-        [$index, $client, $clientId] = $resolved;
+        [$index, $client, $clientId, $statsKey] = $resolved;
         if (empty($client)) {
             $this->xray();
             return;
@@ -6007,7 +6046,8 @@ DNS-over-HTTPS with IP:
 
         $menuArg  = $clientId ? $index . '_' . base64_encode($clientId) : (string) $index;
         $stats    = $this->getHwidStats();
-        $devices  = $stats[$clientId]['devices'] ?? [];
+        $uidKey   = $statsKey !== '' ? $statsKey : $clientId;
+        $devices  = $uidKey !== '' ? ($stats[$uidKey]['devices'] ?? []) : [];
         $pac      = $this->getPacConf();
         $limit    = !empty($pac['hwid_limit_enabled']) ? ($pac['hwid_limit_count'] ?: 1) : $this->i18n('off');
         $text     = [];
