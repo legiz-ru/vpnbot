@@ -4932,11 +4932,21 @@ DNS-over-HTTPS with IP:
             return true;
         }
 
-        $devices = $this->getHwidDevicesByUser($client['id']);
-        $hwid    = trim($_SERVER['HTTP_X_HWID'] ?? '');
+        $devices   = $this->getHwidDevicesByUser($client['id']);
+        $hwid      = trim($_SERVER['HTTP_X_HWID'] ?? '');
+        $isBrowser = $this->isBrowserRequest();
 
         if ($hwid === '') {
-            return true;
+            if ($isBrowser) {
+                return true;
+            }
+
+            $message = 'HWID device limit exceeded';
+            header('announce: base64:' . base64_encode($message));
+            header('X-HWID-Status: ' . $message);
+            header('HTTP/1.1 429 Too Many Requests', true, 429);
+
+            return false;
         }
 
         $isNew = !isset($devices[$hwid]);
@@ -4958,6 +4968,41 @@ DNS-over-HTTPS with IP:
         ]);
 
         return true;
+    }
+
+    protected function isBrowserRequest()
+    {
+        $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        $accept    = $_SERVER['HTTP_ACCEPT'] ?? '';
+
+        if ($userAgent === '' && $accept === '') {
+            return false;
+        }
+
+        $browserPatterns = [
+            'Mozilla/',
+            'Chrome/',
+            'Safari/',
+            'Firefox/',
+            'Edge/',
+            'Edg/',
+            'MSIE ',
+            'Trident/',
+            'Opera/',
+            'OPR/',
+        ];
+
+        foreach ($browserPatterns as $pattern) {
+            if (stripos($userAgent, $pattern) !== false) {
+                return true;
+            }
+        }
+
+        if (stripos($accept, 'text/html') !== false) {
+            return true;
+        }
+
+        return false;
     }
 
     public function switchSilence()
