@@ -2457,8 +2457,7 @@ class Bot
     private function resolveHwidClient(string $arg): ?array
     {
         [$indexPart, $encodedId] = array_pad(explode('_', $arg, 2), 2, null);
-        $index = (int) $indexPart;
-        $requestedId = null;
+        $requestedId              = null;
         if ($encodedId !== null && $encodedId !== '') {
             $decoded = base64_decode($encodedId, true);
             if ($decoded !== false) {
@@ -2469,6 +2468,23 @@ class Bot
         $xray    = $this->getXray();
         $clients = $xray['inbounds'][0]['settings']['clients'] ?? [];
         $stats   = null;
+
+        if (!empty($_SESSION['hwid_client_lookup'][$arg])) {
+            $lookup  = $_SESSION['hwid_client_lookup'][$arg];
+            $index   = $lookup['index'];
+            $index   = array_key_exists($index, $clients) ? $index : (ctype_digit((string) $index) && array_key_exists((int) $index, $clients) ? (int) $index : null);
+            if ($index !== null) {
+                $client   = $clients[$index];
+                $clientId = $lookup['client_id'] ?: ($client['id'] ?? '');
+                $statsKey = $lookup['stats_key'] ?? '';
+                if ($statsKey === '' && ($clientId !== '' || !empty($client['email']))) {
+                    $statsKey = $this->resolveHwidStatsKey($client, $clientId, $stats);
+                    $_SESSION['hwid_client_lookup'][$arg]['stats_key'] = $statsKey;
+                }
+
+                return [$index, $client, $clientId, $statsKey];
+            }
+        }
 
         if ($requestedId !== null) {
             foreach ($clients as $idx => $client) {
@@ -2481,7 +2497,16 @@ class Bot
             }
         }
 
-        if (!isset($clients[$index])) {
+        $index = null;
+        if ($indexPart !== null && $indexPart !== '') {
+            if (array_key_exists($indexPart, $clients)) {
+                $index = $indexPart;
+            } elseif (ctype_digit($indexPart) && array_key_exists((int) $indexPart, $clients)) {
+                $index = (int) $indexPart;
+            }
+        }
+
+        if ($index === null) {
             return null;
         }
 
@@ -5934,6 +5959,9 @@ DNS-over-HTTPS with IP:
         if (!empty($_SESSION['hwid_device_map'][$menuArg])) {
             unset($_SESSION['hwid_device_map'][$menuArg]);
         }
+        if (!empty($_SESSION['hwid_client_lookup'][$menuArg])) {
+            unset($_SESSION['hwid_client_lookup'][$menuArg]);
+        }
         if ($returnToMenu) {
             $this->hwidDevicesMenu($menuArg);
             return;
@@ -6023,6 +6051,9 @@ DNS-over-HTTPS with IP:
         if (!empty($_SESSION['hwid_device_map'][$menuArg])) {
             unset($_SESSION['hwid_device_map'][$menuArg]);
         }
+        if (!empty($_SESSION['hwid_client_lookup'][$menuArg])) {
+            unset($_SESSION['hwid_client_lookup'][$menuArg]);
+        }
         if ($returnToMenu) {
             $this->hwidDevicesMenu($menuArg);
             return;
@@ -6048,6 +6079,15 @@ DNS-over-HTTPS with IP:
         $stats    = $this->getHwidStats();
         $uidKey   = $statsKey !== '' ? $statsKey : $clientId;
         $devices  = $uidKey !== '' ? ($stats[$uidKey]['devices'] ?? []) : [];
+        if (!isset($_SESSION['hwid_client_lookup'])) {
+            $_SESSION['hwid_client_lookup'] = [];
+        }
+        $_SESSION['hwid_client_lookup'][$menuArg] = [
+            'index'     => $index,
+            'client_id' => $clientId,
+            'stats_key' => $statsKey,
+            'email'     => $client['email'] ?? '',
+        ];
         $pac      = $this->getPacConf();
         $limit    = !empty($pac['hwid_limit_enabled']) ? ($pac['hwid_limit_count'] ?: 1) : $this->i18n('off');
         $text     = [];
@@ -6925,10 +6965,21 @@ DNS-over-HTTPS with IP:
                 'callback_data' => "/resetXrUser $i",
             ],
         ];
-        $hwidCallback = $i;
+        $hwidCallback = (string) $i;
         if (!empty($c['id'])) {
             $hwidCallback .= '_' . base64_encode($c['id']);
         }
+        if (!isset($_SESSION['hwid_client_lookup'])) {
+            $_SESSION['hwid_client_lookup'] = [];
+        }
+        $stats     = null;
+        $statsKey  = $this->resolveHwidStatsKey($c, $c['id'] ?? '', $stats);
+        $_SESSION['hwid_client_lookup'][$hwidCallback] = [
+            'index'     => $i,
+            'client_id' => $c['id'] ?? '',
+            'stats_key' => $statsKey,
+            'email'     => $c['email'] ?? '',
+        ];
         $data[] = [
             [
                 'text'          => $this->i18n('hwid devices'),
