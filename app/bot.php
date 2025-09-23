@@ -2405,7 +2405,7 @@ class Bot
         $limit = max(0, $limit);
         $hwid = trim($_SERVER['HTTP_X_HWID'] ?? '');
         if ($hwid === '') {
-            if ($enforce && !$allowMissingHeader) {
+            if ($enforce && !$allowMissingHeader && !$this->isBrowserRequest()) {
                 $this->denyHwidAccess();
             }
             return;
@@ -2442,6 +2442,16 @@ class Bot
         header('announce: ' . $this->hwidLimitMessage);
         http_response_code(404);
         exit;
+    }
+
+    public function isBrowserRequest(): bool
+    {
+        $agent = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        if ($agent === '') {
+            return false;
+        }
+
+        return (bool) preg_match('/Mozilla|AppleWebKit|Chrome|Safari|Firefox|Edge|OPR|MSIE/i', $agent);
     }
 
     public function domain()
