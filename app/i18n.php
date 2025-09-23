@@ -61,6 +61,10 @@ $i = [
         'en' => 'set HWID limit',
         'ru' => 'установить лимит устройств',
     ],
+    'hwid limit warning'   => [
+        'en' => 'HWID limit triggers only when a subscription is refreshed or added',
+        'ru' => 'HWID лимит срабатывает только в момент обновления и добавления подписки',
+    ],
     'hwid devices'         => [
         'en' => 'HWID devices',
         'ru' => 'Устройства HWID',

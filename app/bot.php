@@ -33,7 +33,7 @@ class Bot
         $this->limit    = $this->getPacConf()['limitpage'] ?: 5;
         $this->adguard  = '/config/AdGuardHome.yaml';
         $this->update   = '/update/json';
-        $this->hwidStats = '/configs/hwid_devices.json';
+        $this->hwidStats = '/config/hwid_devices.json';
         $this->logs = [
             'nginx_default_access',
             'nginx_domain_access',
@@ -411,13 +411,13 @@ class Bot
             case preg_match('~^/resetXrUser (\d+)$~', $this->input['callback'], $m):
                 $this->resetXrUser($m[1]);
                 break;
-            case preg_match('~^/clearHwid (\d+)(?:\s+(menu))?$~', $this->input['callback'], $m):
+            case preg_match('~^/clearHwid ([^\s]+)(?:\s+(menu))?$~', $this->input['callback'], $m):
                 $this->clearHwidDevices($m[1], !empty($m[2]));
                 break;
             case preg_match('~^/delHwid (.+?)(?:\s+(menu))?$~', $this->input['callback'], $m):
                 $this->deleteHwidDevice($m[1], !empty($m[2]));
                 break;
-            case preg_match('~^/hwidDevices (\d+)$~', $this->input['callback'], $m):
+            case preg_match('~^/hwidDevices ([^\s]+)$~', $this->input['callback'], $m):
                 $this->hwidDevicesMenu($m[1]);
                 break;
             case preg_match('~^/resetXrStats$~', $this->input['callback'], $m):
@@ -2362,7 +2362,7 @@ class Bot
     public function getHwidStats(): array
     {
         if (!file_exists($this->hwidStats)) {
-            foreach (['/root/configs/hwid_devices.json', '/config/hwid_devices.json'] as $legacyPath) {
+            foreach (['/configs/hwid_devices.json', '/root/configs/hwid_devices.json', '/config/hwid_devices.json'] as $legacyPath) {
                 if ($legacyPath === $this->hwidStats || !file_exists($legacyPath)) {
                     continue;
                 }
@@ -2422,10 +2422,10 @@ class Bot
         $devices[$hwid] = [
             'first_seen'   => $entry['first_seen'] ?? time(),
             'last_seen'    => time(),
-            'device_os'    => $_SERVER['HTTP_X_DEVICE_OS'] ?? '',
-            'os_version'   => $_SERVER['HTTP_X_VER_OS'] ?? '',
-            'device_model' => $_SERVER['HTTP_X_DEVICE_MODEL'] ?? '',
-            'user_agent'   => $_SERVER['HTTP_USER_AGENT'] ?? '',
+            'device_os'    => $_SERVER['HTTP_X_DEVICE_OS'] ?? ($entry['device_os'] ?? ''),
+            'os_version'   => $_SERVER['HTTP_X_VER_OS'] ?? ($entry['os_version'] ?? ''),
+            'device_model' => $_SERVER['HTTP_X_DEVICE_MODEL'] ?? ($entry['device_model'] ?? ''),
+            'user_agent'   => $_SERVER['HTTP_USER_AGENT'] ?? ($entry['user_agent'] ?? ''),
             'requests'     => ($entry['requests'] ?? 0) + 1,
         ];
 
@@ -2439,7 +2439,7 @@ class Bot
 
     public function denyHwidAccess(): void
     {
-        header('announce: ' . $this->hwidLimitMessage);
+        header('announce: base64:' . base64_encode($this->hwidLimitMessage));
         http_response_code(404);
         exit;
     }
@@ -2452,6 +2452,39 @@ class Bot
         }
 
         return (bool) preg_match('/Mozilla|AppleWebKit|Chrome|Safari|Firefox|Edge|OPR|MSIE/i', $agent);
+    }
+
+    private function resolveHwidClient(string $arg): ?array
+    {
+        [$indexPart, $encodedId] = array_pad(explode('_', $arg, 2), 2, null);
+        $index = (int) $indexPart;
+        $clientId = null;
+        if ($encodedId !== null && $encodedId !== '') {
+            $decoded = base64_decode($encodedId, true);
+            if ($decoded !== false) {
+                $clientId = $decoded;
+            }
+        }
+
+        $xray = $this->getXray();
+        $clients = $xray['inbounds'][0]['settings']['clients'] ?? [];
+
+        if ($clientId !== null) {
+            foreach ($clients as $idx => $client) {
+                if (!empty($client['id']) && $client['id'] === $clientId) {
+                    return [$idx, $client, $clientId];
+                }
+            }
+        }
+
+        if (!isset($clients[$index])) {
+            return null;
+        }
+
+        $client = $clients[$index];
+        $clientId = $client['id'] ?? ($clientId ?? '');
+
+        return [$index, $client, $clientId];
     }
 
     public function domain()
@@ -2624,6 +2657,7 @@ class Bot
             $c['hwid_limit_count'] = $count;
         }
         $this->setPacConf($c);
+        $_SESSION['hwid_notice'] = $this->i18n('hwid limit warning');
         $this->xray();
     }
 
@@ -2631,10 +2665,19 @@ class Bot
     {
         $c = $this->getPacConf();
         $c['hwid_limit_enabled'] = $c['hwid_limit_enabled'] ? 0 : 1;
-        if (!empty($c['hwid_limit_enabled']) && empty($c['hwid_limit_count'])) {
+        $enabled = !empty($c['hwid_limit_enabled']);
+        if ($enabled && empty($c['hwid_limit_count'])) {
             $c['hwid_limit_count'] = 1;
         }
         $this->setPacConf($c);
+        if ($enabled) {
+            $_SESSION['hwid_notice'] = $this->i18n('hwid limit warning');
+            if (!empty($this->input['callback_id'])) {
+                $this->answer($this->input['callback_id'], $this->i18n('hwid limit warning'), true);
+            }
+        } elseif (!empty($this->input['callback_id'])) {
+            $this->answer($this->input['callback_id']);
+        }
         $this->xray();
     }
 
@@ -5830,89 +5873,115 @@ DNS-over-HTTPS with IP:
         $this->userXr($i);
     }
 
-    public function clearHwidDevices($i, $returnToMenu = false)
+    public function clearHwidDevices($arg, $returnToMenu = false)
     {
-        $xray = $this->getXray();
-        $clients = $xray['inbounds'][0]['settings']['clients'] ?? [];
-        if (empty($clients[$i])) {
+        $resolved = $this->resolveHwidClient($arg);
+        if ($resolved === null) {
             $this->xray();
             return;
         }
-        $uid  = $clients[$i]['id'];
+        [$index, $client, $clientId] = $resolved;
+        if (empty($client)) {
+            $this->xray();
+            return;
+        }
+        $uid  = $clientId ?: ($client['id'] ?? '');
         $stats = $this->getHwidStats();
         if (isset($stats[$uid])) {
             unset($stats[$uid]);
             $this->setHwidStats($stats);
         }
+        $menuArg = $uid ? $index . '_' . base64_encode($uid) : (string) $index;
         if ($returnToMenu) {
-            $this->hwidDevicesMenu($i);
+            $this->hwidDevicesMenu($menuArg);
             return;
         }
-        $this->userXr($i);
+        $this->userXr($index);
     }
 
     public function deleteHwidDevice($arg, $returnToMenu = false)
     {
-        [$index, $encoded] = array_pad(explode('_', $arg, 2), 2, null);
-        $index             = (int) $index;
-        if ($encoded === null) {
-            if ($returnToMenu) {
-                $this->hwidDevicesMenu($index);
-                return;
-            }
-            $this->userXr($index);
-            return;
+        $parts = explode('_', $arg, 3);
+        $indexPart = $parts[0] ?? '';
+        $clientIdEncoded = count($parts) === 3 ? $parts[1] : null;
+        $hwidEncoded     = count($parts) === 3 ? $parts[2] : ($parts[1] ?? null);
+
+        $clientArg = $indexPart;
+        if ($clientIdEncoded !== null) {
+            $clientArg .= '_' . $clientIdEncoded;
         }
-        $hwid = base64_decode($encoded, true);
-        if ($hwid === false) {
-            if ($returnToMenu) {
-                $this->hwidDevicesMenu($index);
-                return;
-            }
-            $this->userXr($index);
-            return;
-        }
-        $xray = $this->getXray();
-        $clients = $xray['inbounds'][0]['settings']['clients'] ?? [];
-        if (empty($clients[$index])) {
+
+        $resolved = $this->resolveHwidClient($clientArg);
+        if ($resolved === null) {
             $this->xray();
             return;
         }
-        $uid  = $clients[$index]['id'];
+        [$index, $client, $clientId] = $resolved;
+        if (empty($client)) {
+            $this->xray();
+            return;
+        }
+        if ($hwidEncoded === null) {
+            $menuArg = $clientId ? $index . '_' . base64_encode($clientId) : (string) $index;
+            if ($returnToMenu) {
+                $this->hwidDevicesMenu($menuArg);
+                return;
+            }
+            $this->userXr($index);
+            return;
+        }
+        $hwid = base64_decode($hwidEncoded, true);
+        if ($hwid === false) {
+            $menuArg = $clientId ? $index . '_' . base64_encode($clientId) : (string) $index;
+            if ($returnToMenu) {
+                $this->hwidDevicesMenu($menuArg);
+                return;
+            }
+            $this->userXr($index);
+            return;
+        }
+        $uid  = $clientId ?: ($client['id'] ?? '');
         $stats = $this->getHwidStats();
         if (isset($stats[$uid]['devices'][$hwid])) {
             unset($stats[$uid]['devices'][$hwid]);
             if (empty($stats[$uid]['devices'])) {
                 unset($stats[$uid]);
             } else {
-                $stats[$uid]['email'] = $clients[$index]['email'];
+                $stats[$uid]['email'] = $client['email'];
             }
             $this->setHwidStats($stats);
         }
+        $menuArg = $uid ? $index . '_' . base64_encode($uid) : (string) $index;
         if ($returnToMenu) {
-            $this->hwidDevicesMenu($index);
+            $this->hwidDevicesMenu($menuArg);
             return;
         }
         $this->userXr($index);
     }
 
-    public function hwidDevicesMenu($i)
+    public function hwidDevicesMenu($arg)
     {
-        $xray    = $this->getXray();
-        $clients = $xray['inbounds'][0]['settings']['clients'] ?? [];
-        if (!isset($clients[$i])) {
+        $resolved = $this->resolveHwidClient($arg);
+        if ($resolved === null) {
             $this->xray();
             return;
         }
 
-        $client   = $clients[$i];
+        [$index, $client, $clientId] = $resolved;
+        if (empty($client)) {
+            $this->xray();
+            return;
+        }
+
+        $menuArg  = $clientId ? $index . '_' . base64_encode($clientId) : (string) $index;
         $stats    = $this->getHwidStats();
-        $devices  = $stats[$client['id']]['devices'] ?? [];
+        $devices  = $stats[$clientId]['devices'] ?? [];
         $pac      = $this->getPacConf();
         $limit    = !empty($pac['hwid_limit_enabled']) ? ($pac['hwid_limit_count'] ?: 1) : $this->i18n('off');
         $text     = [];
         $text[]   = $this->i18n('hwid devices') . ' — ' . $client['email'];
         $text[]   = $this->i18n('hwid limit') . ': ' . $limit;
+        $text[]   = $this->i18n('hwid limit warning');
         if (!empty($devices)) {
             $text[] = '';
             foreach ($devices as $hwidValue => $info) {
@@ -5948,21 +6017,21 @@ DNS-over-HTTPS with IP:
                 $data[] = [
                     [
                         'text'          => $this->i18n('delete') . ' ' . substr($hwidValue, 0, 8),
-                        'callback_data' => "/delHwid {$i}_" . base64_encode($hwidValue) . ' menu',
+                        'callback_data' => "/delHwid {$menuArg}_" . base64_encode($hwidValue) . ' menu',
                     ],
                 ];
             }
             $data[] = [
                 [
                     'text'          => $this->i18n('clear devices'),
-                    'callback_data' => "/clearHwid $i menu",
+                    'callback_data' => "/clearHwid {$menuArg} menu",
                 ],
             ];
         }
         $data[] = [
             [
                 'text'          => $this->i18n('back'),
-                'callback_data' => "/userXr $i",
+                'callback_data' => "/userXr $index",
             ],
         ];
 
@@ -6288,6 +6357,11 @@ DNS-over-HTTPS with IP:
         $td = $this->getBytes($st['global']['download'] + $st['session']['download']);
         $tu = $this->getBytes($st['global']['upload'] + $st['session']['upload']);
         $text[] = "↓$td  ↑$tu";
+        if (!empty($_SESSION['hwid_notice'])) {
+            $text[] = '';
+            $text[] = $_SESSION['hwid_notice'];
+            unset($_SESSION['hwid_notice']);
+        }
         $data[] = [
             [
                 'text'          => $this->i18n('reset stats'),
@@ -6773,10 +6847,14 @@ DNS-over-HTTPS with IP:
                 'callback_data' => "/resetXrUser $i",
             ],
         ];
+        $hwidCallback = $i;
+        if (!empty($c['id'])) {
+            $hwidCallback .= '_' . base64_encode($c['id']);
+        }
         $data[] = [
             [
                 'text'          => $this->i18n('hwid devices'),
-                'callback_data' => "/hwidDevices $i",
+                'callback_data' => "/hwidDevices $hwidCallback",
             ],
         ];
         $data[] = [
