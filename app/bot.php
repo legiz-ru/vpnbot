@@ -2400,11 +2400,14 @@ class Bot
         );
     }
 
-    public function handleHwidAccess(string $uid, string $email, bool $enforce, int $limit): void
+    public function handleHwidAccess(string $uid, string $email, bool $enforce, int $limit, bool $allowMissingHeader = false): void
     {
         $limit = max(0, $limit);
         $hwid = trim($_SERVER['HTTP_X_HWID'] ?? '');
         if ($hwid === '') {
+            if ($enforce && !$allowMissingHeader) {
+                $this->denyHwidAccess();
+            }
             return;
         }
 
@@ -2419,7 +2422,6 @@ class Bot
         $devices[$hwid] = [
             'first_seen'   => $entry['first_seen'] ?? time(),
             'last_seen'    => time(),
-            'last_ip'      => $_SERVER['REMOTE_ADDR'] ?? '',
             'device_os'    => $_SERVER['HTTP_X_DEVICE_OS'] ?? '',
             'os_version'   => $_SERVER['HTTP_X_VER_OS'] ?? '',
             'device_model' => $_SERVER['HTTP_X_DEVICE_MODEL'] ?? '',
@@ -5914,14 +5916,14 @@ DNS-over-HTTPS with IP:
                 if (!empty($modelInfo)) {
                     $deviceRow[] = implode(' ', $modelInfo);
                 }
-                if (!empty($info['last_ip'])) {
-                    $deviceRow[] = 'IP: ' . $info['last_ip'];
-                }
                 if (!empty($info['requests'])) {
                     $deviceRow[] = 'req: ' . $info['requests'];
                 }
                 if (!empty($info['last_seen'])) {
                     $deviceRow[] = date('Y-m-d H:i', $info['last_seen']);
+                }
+                if (!empty($info['user_agent'])) {
+                    $deviceRow[] = htmlspecialchars($info['user_agent'], ENT_HTML5 | ENT_SUBSTITUTE, 'UTF-8');
                 }
                 $text[] = "<code>{$hwidSafe}</code>" . ($deviceRow ? ' — ' . implode(', ', $deviceRow) : '');
             }
@@ -6773,14 +6775,14 @@ DNS-over-HTTPS with IP:
                 if (!empty($modelInfo)) {
                     $deviceRow[] = implode(' ', $modelInfo);
                 }
-                if (!empty($info['last_ip'])) {
-                    $deviceRow[] = 'IP: ' . $info['last_ip'];
-                }
                 if (!empty($info['requests'])) {
                     $deviceRow[] = 'req: ' . $info['requests'];
                 }
                 if (!empty($info['last_seen'])) {
                     $deviceRow[] = date('Y-m-d H:i', $info['last_seen']);
+                }
+                if (!empty($info['user_agent'])) {
+                    $deviceRow[] = htmlspecialchars($info['user_agent'], ENT_HTML5 | ENT_SUBSTITUTE, 'UTF-8');
                 }
                 $text[] = "<code>{$hwidSafe}</code>" . ($deviceRow ? ' — ' . implode(', ', $deviceRow) : '');
             }
@@ -6909,7 +6911,13 @@ DNS-over-HTTPS with IP:
         }
         if (!empty($uid)) {
             $limit = (int) ($pac['hwid_limit_count'] ?? 1);
-            $this->handleHwidAccess($uid, $email, !empty($pac['hwid_limit_enabled']), $limit);
+            $this->handleHwidAccess(
+                $uid,
+                $email,
+                !empty($pac['hwid_limit_enabled']),
+                $limit,
+                allowMissingHeader: true
+            );
         }
         $suburl   = "<a href='$scheme://{$domain}/pac$hash/sub?id={$uid}'>subscription</a>";
         $download = $this->getBytes($st['users'][$k]['global']['download'] + $st['users'][$k]['session']['download']);
@@ -6977,6 +6985,11 @@ DNS-over-HTTPS with IP:
         if ($flag) {
             header('500', true, 500);
             exit;
+        }
+
+        if (!empty($uid)) {
+            $limit = (int) ($pac['hwid_limit_count'] ?? 1);
+            $this->handleHwidAccess($uid, $email, !empty($pac['hwid_limit_enabled']), $limit);
         }
 
         if (!empty($_GET['r'])) {
