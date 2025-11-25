@@ -7290,6 +7290,7 @@ DNS-over-HTTPS with IP:
                     'id'         => '~uid~',
                     'encryption' => 'none',
                 ];
+                $fingerprint = $c['outbounds'][$index]['streamSettings']['realitySettings']['fingerprint'] ?? $c['outbounds'][$index]['streamSettings']['tlsSettings']['fingerprint'] ?? 'chrome';
                 if ($pac['transport'] != 'Reality') {
                     $c['outbounds'][$index]['streamSettings'] = [
                         "network"    => "ws",
@@ -7300,7 +7301,7 @@ DNS-over-HTTPS with IP:
                         "tlsSettings" => [
                             "allowInsecure" => false,
                             "serverName"    => '~domain~',
-                            "fingerprint"   => "chrome"
+                            "fingerprint"   => $fingerprint
                         ]
                     ];
                     unset($c['outbounds'][$index]['mux']);
@@ -7311,7 +7312,7 @@ DNS-over-HTTPS with IP:
                         "security"        => "reality",
                         "realitySettings" => [
                             "serverName"  => '~server_name~',
-                            "fingerprint" => "chrome",
+                            "fingerprint" => $fingerprint,
                             "publicKey"   => '~public_key~',
                             "shortId"     => '~short_id~',
                         ]
