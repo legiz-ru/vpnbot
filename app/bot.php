@@ -2917,11 +2917,52 @@ DNS-over-HTTPS with IP:
             ],
         ];
         if (!empty($c['blocklist']) && !empty(array_filter($c['blocklist']))) {
-            $rules[] = [
-                "type"        => "field",
-                "outboundTag" => "block",
-                "domain"      => array_keys(array_filter($c['blocklist'])),
-            ];
+            $domains = array_keys(array_filter($c['blocklist'], function ($v, $k){
+                    if (!empty($v)) {
+                        if (!preg_match('~^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$~', $k)) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }, ARRAY_FILTER_USE_BOTH));
+            if (!empty($domains)) {
+                $rules[] = [
+                    "type"        => "field",
+                    "outboundTag" => "block",
+                    "domain"      => array_keys(array_filter($c['blocklist'], function ($v, $k){
+                        if (!empty($v)) {
+                            if (!preg_match('~^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$~', $k)) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    }, ARRAY_FILTER_USE_BOTH)),
+                ];
+            }
+        }
+        if (!empty($c['blocklist']) && !empty(array_filter($c['blocklist']))) {
+            $ips = array_keys(array_filter($c['blocklist'], function ($v, $k){
+                    if (!empty($v)) {
+                        if (preg_match('~^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$~', $k)) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }, ARRAY_FILTER_USE_BOTH));
+            if (!empty($ips)) {
+                $rules[] = [
+                    "type"        => "field",
+                    "outboundTag" => "block",
+                    "ip"          => array_keys(array_filter($c['blocklist'], function ($v, $k){
+                        if (!empty($v)) {
+                            if (preg_match('~^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$~', $k)) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    }, ARRAY_FILTER_USE_BOTH)),
+                ];
+            }
         }
         if (!empty($c['warplist']) && !empty(array_filter($c['warplist']))) {
             $domains = array_keys(array_filter($c['warplist'], function ($v, $k){
@@ -2932,20 +2973,20 @@ DNS-over-HTTPS with IP:
                     }
                     return false;
                 }, ARRAY_FILTER_USE_BOTH));
-                if (!empty($domains)) {
-                    $rules[] = [
-                        "type"        => "field",
-                        "outboundTag" => "warp",
-                        "domain"      => array_keys(array_filter($c['warplist'], function ($v, $k){
-                            if (!empty($v)) {
-                                if (!preg_match('~^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$~', $k)) {
-                                    return true;
-                                }
+            if (!empty($domains)) {
+                $rules[] = [
+                    "type"        => "field",
+                    "outboundTag" => "warp",
+                    "domain"      => array_keys(array_filter($c['warplist'], function ($v, $k){
+                        if (!empty($v)) {
+                            if (!preg_match('~^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$~', $k)) {
+                                return true;
                             }
-                            return false;
-                        }, ARRAY_FILTER_USE_BOTH)),
-                    ];
-                }
+                        }
+                        return false;
+                    }, ARRAY_FILTER_USE_BOTH)),
+                ];
+            }
         }
         if (!empty($c['warplist']) && !empty(array_filter($c['warplist']))) {
             $ips = array_keys(array_filter($c['warplist'], function ($v, $k){
@@ -2956,20 +2997,20 @@ DNS-over-HTTPS with IP:
                     }
                     return false;
                 }, ARRAY_FILTER_USE_BOTH));
-                if (!empty($ips)) {
-                    $rules[] = [
-                        "type"        => "field",
-                        "outboundTag" => "warp",
-                        "ip"          => array_keys(array_filter($c['warplist'], function ($v, $k){
-                            if (!empty($v)) {
-                                if (preg_match('~^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$~', $k)) {
-                                    return true;
-                                }
+            if (!empty($ips)) {
+                $rules[] = [
+                    "type"        => "field",
+                    "outboundTag" => "warp",
+                    "ip"          => array_keys(array_filter($c['warplist'], function ($v, $k){
+                        if (!empty($v)) {
+                            if (preg_match('~^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$~', $k)) {
+                                return true;
                             }
-                            return false;
-                        }, ARRAY_FILTER_USE_BOTH)),
-                    ];
-                }
+                        }
+                        return false;
+                    }, ARRAY_FILTER_USE_BOTH)),
+                ];
+            }
         }
         $xr['routing']['rules'] = $rules ?: [];
         $this->restartXray($xr);
@@ -7410,12 +7451,47 @@ DNS-over-HTTPS with IP:
         switch ($_GET['t']) {
             case 's':
                 if (!empty($c['routing']['rules'])) {
+                    $ips = $domains = [];
                     foreach ($c['routing']['rules'] as $k => $v) {
-                        if (array_key_exists('domain', $v) && empty($v['domain'])) {
-                            unset($c['routing']['rules'][$k]);
+                        if (array_key_exists('domain', $v) && !empty($v['domain'])) {
+                            foreach ($v['domain'] as $j) {
+                                if (!preg_match('~^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$~', $j)) {
+                                    $domains[$v['outboundTag']][] = $j;
+                                } else {
+                                    $ips[$v['outboundTag']][] = $j;
+                                }
+                            }
+                        }
+                        if (array_key_exists('ip', $v) && !empty($v['ip'])) {
+                            foreach ($v['domain'] as $j) {
+                                if (!preg_match('~^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$~', $j)) {
+                                    $domains[$v['outboundTag']][] = $j;
+                                } else {
+                                    $ips[$v['outboundTag']][] = $j;
+                                }
+                            }
                         }
                     }
-                    $c['routing']['rules'] = array_values($c['routing']['rules']);
+                    $c['routing']['rules'] = [];
+
+                    if (!empty($domains)) {
+                        foreach ($domains as $k => $v) {
+                            $c['routing']['rules'][] = [
+                                "type"        => "field",
+                                "outboundTag" => $k,
+                                "domain"      => $v
+                            ];
+                        }
+                    }
+                    if (!empty($ips)) {
+                        foreach ($ips as $k => $v) {
+                            $c['routing']['rules'][] = [
+                                "type"        => "field",
+                                "outboundTag" => $k,
+                                "ip"          => $v
+                            ];
+                        }
+                    }
                 }
                 break;
             case 'si':
@@ -7515,7 +7591,6 @@ DNS-over-HTTPS with IP:
                             case 'package':
                                 echo yaml_emit(['payload' => array_map(fn($e) => "PROCESS-NAME,$e", $v['list'])]);
                                 break;
-                            case 'block':
                             case 'pac':
                                 echo yaml_emit(['payload' => array_map(fn($e) => "+.$e", $v['list'])]);
                                 break;
@@ -7624,6 +7699,24 @@ DNS-over-HTTPS with IP:
         header("Content-Disposition: attachment; filename=$name.srs");
         header('Content-Type: application/binary');
         $f = "/tmp/$name" . time() . rand(1, 100);
+        foreach ($rules as $k => $v) {
+            if (array_key_exists('domain_suffix', $v)) {
+                foreach ($v['domain_suffix'] as $j) {
+                    if (!preg_match('~^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$~', $j)) {
+                        $domains[] = $j;
+                    } else {
+                        $ips[] = $j;
+                    }
+                }
+                unset($rules[$k]['domain_suffix']);
+                if (!empty($domains)) {
+                    $rules[$k]['domain_suffix'] = $domains;
+                }
+                if (!empty($ips)) {
+                    $rules[$k]['ip_cidr'] = $ips;
+                }
+            }
+        }
         file_put_contents($f, json_encode([
             'version' => 1,
             'rules'   => $rules ?: [],
