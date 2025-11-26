@@ -1396,35 +1396,38 @@ class Bot
 
     public function xrayStatsUser()
     {
-        try {
-            $x  = $this->getXray();
-            $td = json_decode($this->ssh('xray api stats --server=127.0.0.1:8080 -name "inbound>>>vless_tls>>>traffic>>>downlink" 2>&1', 'xr'), true)['stat']['value'] ?: 0;
-            $tu = json_decode($this->ssh('xray api stats --server=127.0.0.1:8080 -name "inbound>>>vless_tls>>>traffic>>>uplink" 2>&1', 'xr'), true)['stat']['value'] ?: 0;
-            $p  = $this->getXrayStats();
-            $p['session'] = [
-                'download' => $td,
-                'upload'   => $tu,
-            ];
-            if (!empty($users = $x['inbounds'][0]['settings']['clients'])) {
-                $tmp = [];
-                foreach ($users as $k => $v) {
-                    $d = json_decode($this->ssh('xray api stats --server=127.0.0.1:8080 -name "user>>>' . $v['email'] . '>>>traffic>>>downlink" 2>&1', 'xr'), true)['stat']['value'] ?: 0;
-                    $u = json_decode($this->ssh('xray api stats --server=127.0.0.1:8080 -name "user>>>' . $v['email'] . '>>>traffic>>>uplink" 2>&1', 'xr'), true)['stat']['value'] ?: 0;
-                    $tmp[$k] = [
-                        'session' => [
-                            'download' => $d,
-                            'upload'   => $u,
-                        ],
-                        'global' => [
-                            'download' => $p['users'][$k]['global']['download'],
-                            'upload'   => $p['users'][$k]['global']['upload'],
-                        ]
-                    ];
+        if (empty($this->time_xray_stats) || time() - $this->time_xray_stats > 60) {
+            $this->time_xray_stats = time();
+            try {
+                $x  = $this->getXray();
+                $td = json_decode($this->ssh('xray api stats --server=127.0.0.1:8080 -name "inbound>>>vless_tls>>>traffic>>>downlink" 2>&1', 'xr'), true)['stat']['value'] ?: 0;
+                $tu = json_decode($this->ssh('xray api stats --server=127.0.0.1:8080 -name "inbound>>>vless_tls>>>traffic>>>uplink" 2>&1', 'xr'), true)['stat']['value'] ?: 0;
+                $p  = $this->getXrayStats();
+                $p['session'] = [
+                    'download' => $td,
+                    'upload'   => $tu,
+                ];
+                if (!empty($users = $x['inbounds'][0]['settings']['clients'])) {
+                    $tmp = [];
+                    foreach ($users as $k => $v) {
+                        $d = json_decode($this->ssh('xray api stats --server=127.0.0.1:8080 -name "user>>>' . $v['email'] . '>>>traffic>>>downlink" 2>&1', 'xr'), true)['stat']['value'] ?: 0;
+                        $u = json_decode($this->ssh('xray api stats --server=127.0.0.1:8080 -name "user>>>' . $v['email'] . '>>>traffic>>>uplink" 2>&1', 'xr'), true)['stat']['value'] ?: 0;
+                        $tmp[$k] = [
+                            'session' => [
+                                'download' => $d,
+                                'upload'   => $u,
+                            ],
+                            'global' => [
+                                'download' => $p['users'][$k]['global']['download'],
+                                'upload'   => $p['users'][$k]['global']['upload'],
+                            ]
+                        ];
+                    }
+                    $p['users'] = $tmp;
                 }
-                $p['users'] = $tmp;
+                $this->setXrayStats($p);
+            } catch (\Throwable $th) {
             }
-            $this->setXrayStats($p);
-        } catch (\Throwable $th) {
         }
     }
 
