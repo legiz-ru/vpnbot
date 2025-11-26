@@ -2921,32 +2921,52 @@ DNS-over-HTTPS with IP:
             ];
         }
         if (!empty($c['warplist']) && !empty(array_filter($c['warplist']))) {
-            $rules[] = [
-                "type"        => "field",
-                "outboundTag" => "warp",
-                "domain"      => array_keys(array_filter($c['warplist'], function ($v, $k){
+            $domains = array_keys(array_filter($c['warplist'], function ($v, $k){
                     if (!empty($v)) {
                         if (!preg_match('~^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$~', $k)) {
                             return true;
                         }
                     }
                     return false;
-                }, ARRAY_FILTER_USE_BOTH)),
-            ];
+                }, ARRAY_FILTER_USE_BOTH));
+                if (!empty($domains)) {
+                    $rules[] = [
+                        "type"        => "field",
+                        "outboundTag" => "warp",
+                        "domain"      => array_keys(array_filter($c['warplist'], function ($v, $k){
+                            if (!empty($v)) {
+                                if (!preg_match('~^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$~', $k)) {
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }, ARRAY_FILTER_USE_BOTH)),
+                    ];
+                }
         }
         if (!empty($c['warplist']) && !empty(array_filter($c['warplist']))) {
-            $rules[] = [
-                "type"        => "field",
-                "outboundTag" => "warp",
-                "ip"          => array_keys(array_filter($c['warplist'], function ($v, $k){
+            $ips = array_keys(array_filter($c['warplist'], function ($v, $k){
                     if (!empty($v)) {
                         if (preg_match('~^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$~', $k)) {
                             return true;
                         }
                     }
                     return false;
-                }, ARRAY_FILTER_USE_BOTH)),
-            ];
+                }, ARRAY_FILTER_USE_BOTH));
+                if (!empty($ips)) {
+                    $rules[] = [
+                        "type"        => "field",
+                        "outboundTag" => "warp",
+                        "ip"          => array_keys(array_filter($c['warplist'], function ($v, $k){
+                            if (!empty($v)) {
+                                if (preg_match('~^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$~', $k)) {
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }, ARRAY_FILTER_USE_BOTH)),
+                    ];
+                }
         }
         $xr['routing']['rules'] = $rules ?: [];
         $this->restartXray($xr);
