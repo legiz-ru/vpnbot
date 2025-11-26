@@ -7487,17 +7487,29 @@ DNS-over-HTTPS with IP:
                     if (!empty($_GET['r']) && $v['name'] == $_GET['r']) {
                         header("Content-Disposition: attachment; filename={$v['name']}.yaml");
                         header('Content-Type: text/yaml');
-                        switch ($v['behavior']) {
-                            case 'domain':
+                        switch ($v['name']) {
+                            case 'process':
+                            case 'package':
+                                echo yaml_emit(['payload' => array_map(fn($e) => "PROCESS-NAME,$e", $v['list'])]);
+                                break;
+                            case 'block':
+                            case 'pac':
                                 echo yaml_emit(['payload' => array_map(fn($e) => "+.$e", $v['list'])]);
                                 break;
-                            case 'ipcidr':
+                            case 'subnet':
                                 echo yaml_emit(['payload' => array_map(fn($e) => $e, $v['list'])]);
                                 break;
 
                             default:
-                                echo yaml_emit(['payload' => array_map(fn($e) => "PROCESS-NAME,$e", $v['list'])]);
+                                echo yaml_emit(['payload' => array_map(function($e) {
+                                    if (preg_match('~^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$~', $e)) {
+                                        return "IP-CIDR,$e";
+                                    } else {
+                                        return "DOMAIN-SUFFIX,$e";
+                                    }
+                                }, $v['list'])]);
                                 break;
+
                         }
                         exit;
                     }
