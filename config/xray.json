@@ -11,7 +11,8 @@
             "sniffing": {
                 "destOverride": [
                     "http",
-                    "tls"
+                    "tls",
+                    "quic"
                 ],
                 "enabled": true
             },
