@@ -1384,9 +1384,9 @@ class Bot
             $this->shutdownClient();
             $this->shutdownClientXr();
             $this->checkVersion();
-            $this->checkBackup($period);
-            $this->checkLogs($period);
-            $this->checkResetXrayStats($period);
+            $this->checkBackup();
+            $this->checkLogs();
+            $this->checkResetXrayStats();
             $this->checkCert();
             $this->autoAnalyzeLogs();
             $this->xrayStatsUser();
@@ -1477,65 +1477,107 @@ class Bot
         }
     }
 
-    public function checkBackup($delta)
+    public function checkBackup()
     {
         $c = $this->getPacConf();
         if (!empty($c['backup'])) {
-            $now = strtotime(date('Y-m-d H:i:s'));
+            $now = time();
             [$start, $period] = explode('/', $c['backup']);
             $start  = strtotime(trim($start));
             $period = strtotime(trim($period), 0);
-            if (
-                !empty($start)
-                && !empty($period)
-                && empty($this->backup)
-                && $now - $start >= 0
-                && (($now - $start) % $period < $delta)
-            ) {
-                $this->pinBackup();
-            }
-        }
-    }
 
-    public function checkResetXrayStats($delta)
-    {
-        $pac = $this->getPacConf();
-        if (!empty($pac['reset_monthly'])) {
-            $now    = strtotime(date('Y-m-d H:i:s'));
-            $start  = strtotime('first day of previous month midnight');
-            $period = strtotime('1 month', 0);
             if (
                 !empty($start)
                 && !empty($period)
-                && empty($this->backup)
-                && $now - $start >= 0
-                && (($now - $start) % $period < $delta)
+                && $now >= $start
             ) {
-                $this->resetXrStats(1);
-                require __DIR__ . '/config.php';
-                foreach ($c['admin'] as $admin) {
-                    $this->send($admin, "vless: reset stats");
+                // Вычисляем, сколько полных периодов прошло с момента start
+                $elapsed = $now - $start;
+                $periodsElapsed = floor($elapsed / $period);
+
+                // Время последнего планового бэкапа
+                $lastScheduledBackup = $start + ($periodsElapsed * $period);
+
+                // Проверяем, делали ли уже бэкап в этом периоде
+                $lastBackupTime = $c['last_backup_time'] ?? 0;
+
+                // Если последний бэкап был сделан до начала текущего периода - делаем бэкап
+                if ($lastBackupTime < $lastScheduledBackup) {
+                    $c['last_backup_time'] = $now;
+                    $this->setPacConf($c);
+                    $this->pinBackup();
                 }
             }
         }
     }
 
-    public function checkLogs($delta)
+    public function checkResetXrayStats()
     {
-        $c = $this->getPacConf();
-        if (!empty($c['autocleanlogs'])) {
-            $now = strtotime(date('Y-m-d H:i:s'));
-            [$start, $period] = explode('/', $c['autocleanlogs']);
-            $start  = strtotime(trim($start));
-            $period = strtotime(trim($period), 0);
+        $pac = $this->getPacConf();
+        if (!empty($pac['reset_monthly'])) {
+            $now    = time();
+            $start  = strtotime('first day of previous month midnight');
+            $period = strtotime('1 month', 0);
+
             if (
                 !empty($start)
                 && !empty($period)
-                && empty($this->backup)
-                && $now - $start >= 0
-                && (($now - $start) % $period < $delta)
+                && $now >= $start
             ) {
-                $this->cleanLog();
+                // Вычисляем, сколько полных периодов прошло с момента start
+                $elapsed = $now - $start;
+                $periodsElapsed = floor($elapsed / $period);
+
+                // Время последнего планового сброса статистики
+                $lastScheduledReset = $start + ($periodsElapsed * $period);
+
+                // Проверяем, делали ли уже сброс в этом периоде
+                $lastResetTime = $pac['last_reset_xray_time'] ?? 0;
+
+                // Если последний сброс был сделан до начала текущего периода - делаем сброс
+                if ($lastResetTime < $lastScheduledReset) {
+                    $pac['last_reset_xray_time'] = $now;
+                    $this->setPacConf($pac);
+                    $this->resetXrStats(1);
+                    require __DIR__ . '/config.php';
+                    foreach ($c['admin'] as $admin) {
+                        $this->send($admin, "vless: reset stats");
+                    }
+                }
+            }
+        }
+    }
+
+    public function checkLogs()
+    {
+        $c = $this->getPacConf();
+        if (!empty($c['autocleanlogs'])) {
+            $now = time();
+            [$start, $period] = explode('/', $c['autocleanlogs']);
+            $start  = strtotime(trim($start));
+            $period = strtotime(trim($period), 0);
+
+            if (
+                !empty($start)
+                && !empty($period)
+                && $now >= $start
+            ) {
+                // Вычисляем, сколько полных периодов прошло с момента start
+                $elapsed = $now - $start;
+                $periodsElapsed = floor($elapsed / $period);
+
+                // Время последней плановой очистки логов
+                $lastScheduledClean = $start + ($periodsElapsed * $period);
+
+                // Проверяем, делали ли уже очистку в этом периоде
+                $lastCleanTime = $c['last_clean_logs_time'] ?? 0;
+
+                // Если последняя очистка была сделана до начала текущего периода - делаем очистку
+                if ($lastCleanTime < $lastScheduledClean) {
+                    $c['last_clean_logs_time'] = $now;
+                    $this->setPacConf($c);
+                    $this->cleanLog();
+                }
             }
         }
     }
