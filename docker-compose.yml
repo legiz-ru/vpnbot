@@ -318,7 +318,7 @@ services:
         entrypoint: ["/bin/sh", "/start_ad.sh"]
         logging: *default-logging
     tg:
-        image: mercurykd/vpnbot-tg:1.1
+        image: mercurykd/vpnbot-tg:1.2
         build:
             dockerfile: dockerfile/telegram.dockerfile
         volumes:
