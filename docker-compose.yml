@@ -43,7 +43,7 @@ services:
             php:
                 condition: service_healthy
             ng:
-                condition: service_started
+                condition: service_healthy
             ad:
                 condition: service_started
             ss:
@@ -104,6 +104,11 @@ services:
         depends_on:
             php:
                 condition: service_healthy
+        healthcheck:
+            test: ["CMD", "nginx", "-t"]
+            interval: 10s
+            timeout: 5s
+            retries: 3
     php:
         image: mercurykd/vpnbot-php:1.7
         build:
