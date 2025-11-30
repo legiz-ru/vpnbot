@@ -72,3 +72,7 @@ reset:
 	make u
 backup:
 	docker compose exec php php backup.php > backup.json
+cron: # установка задачи в cron для автозапуска при перезагрузке
+	@(crontab -l 2>/dev/null | grep -v "cd /root/vpnbot && make r"; echo "@reboot cd /root/vpnbot && make r") | crontab -
+uncron: # удаление задачи из cron
+	@crontab -l 2>/dev/null | grep -v "cd /root/vpnbot && make r" | crontab -
