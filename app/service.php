@@ -24,4 +24,4 @@ $bot->adguardSync();
 $bot->cloakNginx();
 $bot->syncDeny();
 $bot->cleanDocker();
-$bot->iodineRestart();
+$bot->dnsttStart();

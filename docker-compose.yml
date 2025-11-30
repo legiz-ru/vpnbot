@@ -211,6 +211,7 @@ services:
             - np
             - proxy
             - ss
+            - dnstt
     wg:
         image: mercurykd/vpnbot-wg:1.1
         build:
@@ -537,21 +538,20 @@ services:
             default:
                 ipv4_address: 10.10.0.6
         logging: *default-logging
-    io:
-        image: mercurykd/vpnbot-io:1.0
+    dnstt:
+        image: mercurykd/vpnbot-dnstt:1.0
         build:
-            dockerfile: dockerfile/iodine.dockerfile
+            dockerfile: dockerfile/dnstt.dockerfile
+            args:
+                image: ${IMAGE}
         volumes:
             - ./config/.profile:/root/.ashrc:ro
             - ./ssh:/ssh
             - ./config/sshd_config:/etc/ssh/sshd_config
-            - ./scripts/start_io.sh:/start_io.sh
-        hostname: iodine
-        cap_add:
-            - NET_ADMIN
-        devices:
-            - /dev/net/tun:/dev/net/tun
-        container_name: iodine-${VER}
+            - ./config/dnstt:/dnstt
+            - ./scripts/start_dnstt.sh:/start_dnstt.sh
+        hostname: dnstt
+        container_name: dnstt-${VER}
         depends_on:
             php:
                 condition: service_healthy
@@ -561,7 +561,7 @@ services:
             - path: ./override.env
               required: false
         stop_grace_period: 1s
-        command: ["/bin/sh", "/start_io.sh"]
+        command: ["/bin/sh", "/start_dnstt.sh"]
         networks:
             default:
                 ipv4_address: 10.10.0.16

@@ -1,6 +1,4 @@
 cat /ssh/key.pub > /root/.ssh/authorized_keys
-echo 'HostKeyAlgorithms +ssh-rsa' >> /etc/ssh/sshd_config
-echo 'PubkeyAcceptedKeyTypes +ssh-rsa' >> /etc/ssh/sshd_config
 service ssh start
 off=$(cat /config/pac.json | jq -r .warpoff)
 key=$(cat /config/pac.json | jq -r .warp)

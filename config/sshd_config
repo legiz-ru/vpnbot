@@ -83,9 +83,9 @@ AuthorizedKeysFile	.ssh/authorized_keys
 
 #AllowAgentForwarding yes
 # Feel free to re-enable these if your use case requires them.
-AllowTcpForwarding no
-GatewayPorts no
-X11Forwarding no
+# AllowTcpForwarding no
+# GatewayPorts no
+# X11Forwarding no
 #X11DisplayOffset 10
 #X11UseLocalhost yes
 #PermitTTY yes
@@ -117,4 +117,8 @@ Subsystem	sftp	internal-sftp
 #	ForceCommand cvs server
 HostKeyAlgorithms +ssh-rsa
 PubkeyAcceptedKeyTypes +ssh-rsa
-PasswordAuthentication no
+PasswordAuthentication yes
+AllowTcpForwarding yes
+PermitTunnel yes
+GatewayPorts yes
+X11Forwarding yes

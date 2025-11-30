@@ -317,20 +317,23 @@ class Bot
             case preg_match('~^/logs$~', $this->input['callback'], $m):
                 $this->logs();
                 break;
-            case preg_match('~^/iodine$~', $this->input['callback'], $m):
-                $this->iodine();
+            case preg_match('~^/dnstt$~', $this->input['callback'], $m):
+                $this->dnstt();
                 break;
-            case preg_match('~^/iodineDomain$~', $this->input['callback'], $m):
-                $this->iodineDomain();
+            case preg_match('~^/dnsttDownload$~', $this->input['callback'], $m):
+                $this->dnsttDownload();
                 break;
-            case preg_match('~^/iodinePassword$~', $this->input['callback'], $m):
-                $this->iodinePassword();
+            case preg_match('~^/dnsttDomain$~', $this->input['callback'], $m):
+                $this->dnsttDomain();
                 break;
-            case preg_match('~^/setIodineDomain (\w+)$~', $this->input['callback'], $m):
-                $this->setIodineDomain($m[1]);
+            case preg_match('~^/dnsttPassword$~', $this->input['callback'], $m):
+                $this->dnsttPassword();
                 break;
-            case preg_match('~^/setIodinePassword (\w+)$~', $this->input['callback'], $m):
-                $this->setIodinePassword($m[1]);
+            case preg_match('~^/setdnsttDomain (\w+)$~', $this->input['callback'], $m):
+                $this->setdnsttDomain($m[1]);
+                break;
+            case preg_match('~^/setdnsttPassword (\w+)$~', $this->input['callback'], $m):
+                $this->setdnsttPassword($m[1]);
                 break;
             case preg_match('~^/getLog (?P<arg>\d+(?:_(?:-)?\d+)?)$~', $this->input['callback'], $m):
                 $this->getLog(...explode('_', $m['arg']));
@@ -1138,7 +1141,7 @@ class Bot
         $t = preg_replace('~^(\t+)?basic_auth[^\n]+~sm', '$1basic_auth ' . ($pac['naive']['user'] ?? '_') . ' ' . ($pac['naive']['pass'] ?? '__'), $c);
         file_put_contents('/config/Caddyfile', $t);
         if (!empty($pac['naive']['pass'])) {
-            $this->ssh('caddy run -c /config/Caddyfile > /dev/null 2>&1 &', 'np', false);
+            $this->ssh('caddy run -c /config/Caddyfile', 'np', false);
         }
     }
 
@@ -2829,7 +2832,7 @@ DNS-over-HTTPS with IP:
 
     public function startAd()
     {
-        return $this->ssh('/opt/adguardhome/AdGuardHome --no-check-update --pidfile /opt/adguardhome/pid -c /config/AdGuardHome.yaml -h 0.0.0.0 -w /opt/adguardhome/work > /dev/null 2>&1 &', 'ad', false);
+        return $this->ssh('/opt/adguardhome/AdGuardHome --no-check-update --pidfile /opt/adguardhome/pid -c /config/AdGuardHome.yaml -h 0.0.0.0 -w /opt/adguardhome/work', 'ad', false);
     }
 
     public function stopAd()
@@ -4540,7 +4543,7 @@ DNS-over-HTTPS with IP:
         return implode("\n", $result);
     }
 
-    public function iodineDomain()
+    public function dnsttDomain()
     {
         $r = $this->send(
             $this->input['chat'],
@@ -4550,12 +4553,12 @@ DNS-over-HTTPS with IP:
         );
         $_SESSION['reply'][$r['result']['message_id']] = [
             'start_message' => $this->input['message_id'],
-            'callback'      => 'setIodineDomain',
+            'callback'      => 'setdnsttDomain',
             'args'          => [],
         ];
     }
 
-    public function iodinePassword()
+    public function dnsttPassword()
     {
         $r = $this->send(
             $this->input['chat'],
@@ -4565,63 +4568,82 @@ DNS-over-HTTPS with IP:
         );
         $_SESSION['reply'][$r['result']['message_id']] = [
             'start_message' => $this->input['message_id'],
-            'callback'      => 'setIodinePassword',
+            'callback'      => 'setdnsttPassword',
             'args'          => [],
         ];
     }
 
-    public function setIodinePassword($text)
+    public function setdnsttPassword($text)
     {
         $c = $this->getPacConf();
         if ($text) {
-            $c['iodinePassword'] = $text;
+            $c['dnsttPassword'] = $text;
         } else {
-            unset($c['iodinePassword']);
+            unset($c['dnsttPassword']);
         }
         $this->setPacConf($c);
-        $this->iodineRestart();
-        $this->iodine();
+        $this->dnsttStart();
+        $this->dnstt();
     }
 
-    public function setIodineDomain($text)
+    public function setdnsttDomain($text)
     {
         $c = $this->getPacConf();
         if ($text) {
-            $c['iodineDomain'] = $text;
+            $c['dnsttDomain'] = $text;
         } else {
-            unset($c['iodineDomain']);
+            unset($c['dnsttDomain']);
         }
         $this->setPacConf($c);
-        $this->iodineRestart();
-        $this->iodine();
+        $this->dnsttStart();
+        $this->dnstt();
     }
 
-    public function iodineRestart()
+    public function dnsttStart()
     {
         $c = $this->getPacConf();
-        $this->ssh('pkill iodine', 'io');
-        if (!empty($c['iodineDomain']) && !empty($c['iodinePassword'])) {
-            $this->ssh("iodined -c -P {$c['iodinePassword']} 10.0.0.1 {$c['iodineDomain']}", 'io');
+        $this->ssh('pkill dnstt', 'dnstt');
+        if (!empty($c['dnsttDomain']) && !empty($c['dnsttPassword'])) {
+            $this->ssh("adduser -D -s /bin/sh vpnbot", 'dnstt');
+            $this->ssh("echo 'vpnbot:{$c['dnsttPassword']}' | chpasswd", 'dnstt');
+            if (!file_exists('/config/dnstt/server.key')) {
+                $this->ssh("dnstt-server -gen-key -privkey-file /dnstt/server.key -pubkey-file /dnstt/server.pub", 'dnstt');
+            }
+            $this->ssh("dnstt-server -udp :53 -privkey-file /dnstt/server.key {$c['dnsttDomain']} 127.0.0.1:22", 'dnstt' , false);
         }
     }
 
-    public function iodine()
+    public function dnsttDownload()
+    {
+        $this->sendFile($this->input['from'], curl_file_create('/config/dnstt/server.pub'));
+    }
+
+    public function dnstt()
     {
         $c      = $this->getPacConf();
-        $text[] = 'Iodine';
-        $text[] = "domain: {$c['iodineDomain']}";
-        $text[] = "password: {$c['iodinePassword']}";
+        $pubkey = file_get_contents('/config/dnstt/server.pub');
+        $text[] = "dnstt";
+        $text[] = "<pre>set the NS record for {$c['dnsttDomain']}: tns.{$c['domain']}\nset A record for tns.{$c['domain']}: {$this->ip}</pre>";
+        $text[] = "domain: <code>{$c['dnsttDomain']}</code>";
+        $text[] = "ssh: <code>vpnbot:{$c['dnsttPassword']}</code>";
+        $text[] = "pubkey: <code>$pubkey</code>";
 
         $data[] = [
             [
+                'text'          => $this->i18n('download pubkey'),
+                'callback_data' => "/dnsttDownload",
+            ],
+        ];
+        $data[] = [
+            [
                 'text'          => $this->i18n('set domain'),
-                'callback_data' => "/iodineDomain",
+                'callback_data' => "/dnsttDomain",
             ],
         ];
         $data[] = [
             [
                 'text'          => $this->i18n('set password'),
-                'callback_data' => "/iodinePassword",
+                'callback_data' => "/dnsttPassword",
             ],
         ];
         $data[] = [
@@ -4693,7 +4715,7 @@ DNS-over-HTTPS with IP:
                     $this->i18n($this->ssh('pgrep mtproto-proxy', 'tg') ? 'on' : 'off') . ' ' . $this->i18n('mtproto'),
                     $this->i18n(exec("JSON=1 timeout 2 dnslookup google.com ad") ? 'on' : 'off') . ' ' . $this->i18n('ad_title'),
                     $this->i18n($this->ssh('pgrep ssserver', 'ss') ? 'on' : 'off') . ' ' . $this->i18n('sh_title'),
-                    $this->i18n($this->ssh('pgrep iodine', 'io') ? 'on' : 'off') . ' ' . $this->i18n('Iodine'),
+                    $this->i18n($this->ssh('pgrep dnstt', 'dnstt') ? 'on' : 'off') . ' ' . $this->i18n('dnstt'),
                     $this->i18n($this->warpStatus()) . ' ' . $this->i18n('warp'),
                 ],
                 [
@@ -4705,7 +4727,7 @@ DNS-over-HTTPS with IP:
                     $this->i18n($c['tg'] ? 'on' : 'off') . ' ' . getenv('TGPORT'),
                     $this->i18n($c['ad'] ? 'on' : 'off') . ' 853',
                     $this->i18n($c['ss'] ? 'on' : 'off') . ' ' . getenv('SSPORT'),
-                    $this->i18n($c['io'] ? 'on' : 'off') . ' 53',
+                    $this->i18n($c['dnstt'] ? 'on' : 'off') . ' 53',
                     '',
                 ],
             ]);
@@ -4781,8 +4803,8 @@ DNS-over-HTTPS with IP:
                     ],
                     [
                         [
-                            'text'          => $this->i18n('Iodine'),
-                            'callback_data' => "/iodine",
+                            'text'          => $this->i18n('dnstt'),
+                            'callback_data' => "/dnstt",
                         ],
                     ],
                     [
@@ -8380,8 +8402,8 @@ DNS-over-HTTPS with IP:
                 'callback_data' => "/hidePort ss",
             ]],
             [[
-                'text'          => $this->i18n($c['io'] ? 'on' : 'off') . ' 53 Iodine',
-                'callback_data' => "/hidePort io",
+                'text'          => $this->i18n($c['dnstt'] ? 'on' : 'off') . ' 53 dnstt',
+                'callback_data' => "/hidePort dnstt",
             ]],
         ];
         if (!empty($pac['restart'])) {
@@ -8414,7 +8436,7 @@ DNS-over-HTTPS with IP:
             'tg'  => getenv('TGPORT') . ':' . getenv('TGPORT'),
             'ad'  => '853:853',
             'ss'  => '8388:8388',
-            'io'  => '53:53/udp',
+            'dnstt'  => '53:53/udp',
         ];
         $f = '/docker/compose';
         $c = yaml_parse_file($f);
@@ -9091,15 +9113,33 @@ DNS-over-HTTPS with IP:
             if (empty($a)) {
                 throw new Exception("auth fail: \n$cmd\n" . var_export($a, true));
             }
+
+            // Оборачиваем команду для выполнения в фоновом режиме
+            if (!$wait) {
+                // nohup запускает процесс независимо от SSH-сессии
+                // & переносит процесс в фон
+                // </dev/null >/dev/null 2>&1 перенаправляет все потоки ввода-вывода
+                $cmd = "nohup $cmd </dev/null >/dev/null 2>&1 &";
+            }
+
             $s = ssh2_exec($c, $cmd);
             if (empty($s)) {
                 throw new Exception("exec fail: \n$cmd\n" . var_export($s, true));
             }
-            stream_set_blocking($s, $wait);
+
             $data = "";
-            while ($buf = fread($s, 4096)) {
-                $data .= $buf;
+            if ($wait) {
+                // Только для синхронных команд читаем вывод
+                stream_set_blocking($s, true);
+                while ($buf = fread($s, 4096)) {
+                    $data .= $buf;
+                }
+            } else {
+                // Для фоновых команд просто даем время запуститься
+                stream_set_blocking($s, false);
+                usleep(100000); // 100ms для запуска процесса
             }
+
             fclose($s);
             ssh2_disconnect($c);
         } catch (Exception | Error $e) {
