@@ -1,0 +1,9 @@
+listen: :443
+proxy_protocol: true
+
+tls:
+    cert: /certs/cert_public
+    key: /certs/cert_private
+auth:
+    type: password
+    password:

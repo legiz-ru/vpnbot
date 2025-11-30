@@ -143,7 +143,7 @@ class Bot
             case preg_match('~^/menu (?P<type>addpeer) (?P<arg>(?:-)?\d+)$~', $this->input['callback'], $m):
             case preg_match('~^/menu (?P<type>wg) (?P<arg>(?:-)?\d+)$~', $this->input['callback'], $m):
             case preg_match('~^/menu (?P<type>client) (?P<arg>\d+(?:_(?:-)?\d+)?)$~', $this->input['callback'], $m):
-            case preg_match('~^/menu (?P<type>pac|adguard|config|ss|lang|oc|naive|mirror|update)$~', $this->input['callback'], $m):
+            case preg_match('~^/menu (?P<type>pac|adguard|config|ss|lang|oc|naive|mirror|update|hy)$~', $this->input['callback'], $m):
                 $this->menu(type: $m['type'] ?? false, arg: $m['arg'] ?? false);
                 break;
             case preg_match('~^/changeWG (\d+)$~', $this->input['callback'], $m):
@@ -412,6 +412,9 @@ class Bot
                 break;
             case preg_match('~^/changeNaivePass$~', $this->input['callback'], $m):
                 $this->changeNaivePass();
+                break;
+            case preg_match('~^/changeHysteriaPass$~', $this->input['callback'], $m):
+                $this->changeHysteriaPass();
                 break;
             case preg_match('~^/changeOcDns$~', $this->input['callback'], $m):
                 $this->changeOcDns();
@@ -1051,6 +1054,22 @@ class Bot
         ];
     }
 
+    public function changeHysteriaPass()
+    {
+        $r = $this->send(
+            $this->input['chat'],
+            "@{$this->input['username']} enter password",
+            $this->input['message_id'],
+            reply: 'enter password',
+        );
+        $_SESSION['reply'][$r['result']['message_id']] = [
+            'start_message'  => $this->input['message_id'],
+            'start_callback' => $this->input['callback_id'],
+            'callback'       => 'chhypass',
+            'args'           => [],
+        ];
+    }
+
     public function addOcUser()
     {
         $r = $this->send(
@@ -1145,6 +1164,18 @@ class Bot
         }
     }
 
+    public function restartHysteria()
+    {
+        $pac = $this->getPacConf();
+        $this->ssh('pkill hysteria', 'hy');
+        $c   = yaml_parse_file('/config/hysteria.yaml');
+        $c['auth']['password'] = $pac['hysteria_pass'];
+        yaml_emit_file('/config/hysteria.yaml', $c);
+        if (!empty($pac['hysteria_pass'])) {
+            $this->ssh('hysteria server -c /config/hysteria.yaml', 'hy', false);
+        }
+    }
+
     public function chocdns($dns)
     {
         $c = file_get_contents('/config/ocserv.conf');
@@ -1197,6 +1228,15 @@ class Bot
         $this->setPacConf($pac);
         $this->restartNaive();
         $this->menu('naive');
+    }
+
+    public function chhypass($pass)
+    {
+        $pac = $this->getPacConf();
+        $pac['hysteria_pass'] = $pass;
+        $this->setPacConf($pac);
+        $this->restartHysteria();
+        $this->menu('hy');
     }
 
     public function chockey($pass)
@@ -1794,6 +1834,7 @@ class Bot
             'mtproto'       => file_get_contents('/config/mtprotosecret'),
             'mtprotodomain' => file_get_contents('/config/mtprotodomain'),
             'xray'          => $this->getXray(),
+            'hy'            => yaml_parse_file('/config/hysteria.yaml'),
             'oc'            => file_get_contents('/config/ocserv.conf'),
             'ocu'           => file_get_contents('/config/ocserv.passwd'),
             'ss'            => $this->getSSConfig(),
@@ -1931,9 +1972,17 @@ class Bot
                 file_put_contents('/config/ocserv.passwd', $json['ocu']);
                 $this->restartOcserv($json['oc']);
             }
+            // hysteria
+            if (!empty($json['hy'])) {
+                $out[] = 'update hysteria';
+                $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
+                yaml_emit_file('/config/hysteria.yaml', $json['hy']);
+                $this->restartHysteria();
+            }
             if (!empty($json['pac']['domain'])) {
                 $this->setUpstreamDomainOcserv($json['pac']['domain']);
                 $this->setUpstreamDomainNaive($json['pac']['domain']);
+                $this->setUpstreamDomainHysteria($json['pac']['domain']);
             }
             // nginx
             $out[] = 'reset nginx';
@@ -2351,7 +2400,8 @@ class Bot
                 $adguardClient = $conf['adguardkey'] ? "-d {$conf['adguardkey']}.{$conf['domain']}" : '';
                 $oc = $this->getHashSubdomain('oc');
                 $np = $this->getHashSubdomain('np');
-                exec("certbot certonly --force-renew --preferred-chain 'ISRG Root X1' -n --agree-tos --email mail@{$conf['domain']} -d {$conf['domain']} -d $oc.{$conf['domain']} -d $np.{$conf['domain']} $adguardClient --webroot -w /certs/ --logs-dir /logs --max-log-backups 0 2>&1", $out, $code);
+                $hy = $this->getHashSubdomain('hy');
+                exec("certbot certonly --force-renew --preferred-chain 'ISRG Root X1' -n --agree-tos --email mail@{$conf['domain']} -d {$conf['domain']} -d $oc.{$conf['domain']} -d $np.{$conf['domain']} -d $hy.{$conf['domain']} $adguardClient --webroot -w /certs/ --logs-dir /logs --max-log-backups 0 2>&1", $out, $code);
                 if ($code > 0) {
                     $this->send($this->input['chat'], "ERROR\n" . implode("\n", $out));
                     break;
@@ -4685,6 +4735,7 @@ DNS-over-HTTPS with IP:
                 $main[] = '';
                 $oc     = $this->getHashSubdomain('oc');
                 $np     = $this->getHashSubdomain('np');
+                $hy     = $this->getHashSubdomain('hy');
                 if (!empty($conf['domain'])) {
                     $ssl_expiry = $this->expireCert();
                     $certs      = $this->domainsCert() ?: [];
@@ -4694,6 +4745,7 @@ DNS-over-HTTPS with IP:
                     $main[] = $conf['domain'] . (in_array($conf['domain'], $certs) ? ' (ssl: ' . date('Y-m-d H:i:s', $ssl_expiry) . ')' : '');
                     $main[] = 'naive ' . "$np.{$conf['domain']}" . (in_array("$np.{$conf['domain']}", $certs) ? ' (ssl: ' . date('Y-m-d H:i:s', $ssl_expiry) . ')' : '');
                     $main[] = 'openconnect ' . "$oc.{$conf['domain']}" . (in_array("$oc.{$conf['domain']}", $certs) ? ' (ssl: ' . date('Y-m-d H:i:s', $ssl_expiry) . ')' : '');
+                    $main[] = 'hysteria ' . "$hy.{$conf['domain']}" . (in_array("$hy.{$conf['domain']}", $certs) ? ' (ssl: ' . date('Y-m-d H:i:s', $ssl_expiry) . ')' : '');
                     if (!empty($conf['adguardkey'])) {
                         $main[] = "{$conf['adguardkey']}.{$conf['domain']}" . (in_array("{$conf['adguardkey']}.{$conf['domain']}", $certs) ? ' (ssl: ' . date('Y-m-d H:i:s', $ssl_expiry) . ')' : '') . ' adguard DOT';;
                     }
@@ -4712,6 +4764,7 @@ DNS-over-HTTPS with IP:
                     $this->i18n($this->ssh('pgrep xray', 'xr') ? 'on' : 'off') . ' ' . $this->i18n('xray'),
                     $this->i18n($this->ssh('pgrep caddy', 'np') ? 'on' : 'off') . ' ' . $this->i18n('naive'),
                     $this->i18n($this->ssh('pgrep ocserv', 'oc') ? 'on' : 'off') . ' ' . $this->i18n('ocserv'),
+                    $this->i18n($this->ssh('pgrep hysteria', 'hy') ? 'on' : 'off') . ' ' . $this->i18n('hysteria'),
                     $this->i18n($this->ssh('pgrep mtproto-proxy', 'tg') ? 'on' : 'off') . ' ' . $this->i18n('mtproto'),
                     $this->i18n(exec("JSON=1 timeout 2 dnslookup google.com ad") ? 'on' : 'off') . ' ' . $this->i18n('ad_title'),
                     $this->i18n($this->ssh('pgrep ssserver', 'ss') ? 'on' : 'off') . ' ' . $this->i18n('sh_title'),
@@ -4721,6 +4774,7 @@ DNS-over-HTTPS with IP:
                 [
                     $this->i18n($c['wg'] ? 'on' : 'off') . ' ' . getenv('WGPORT'),
                     $this->i18n($c['wg1'] ? 'on' : 'off') . ' ' . getenv('WG1PORT'),
+                    $this->i18n('on') . ' 443',
                     $this->i18n('on') . ' 443',
                     $this->i18n('on') . ' 443',
                     $this->i18n('on') . ' 443',
@@ -4803,7 +4857,11 @@ DNS-over-HTTPS with IP:
                     ],
                     [
                         [
-                            'text'          => $this->i18n('dnstt'),
+                            'text'          => $this->i18n('Hysteria'),
+                            'callback_data' => "/menu hy",
+                        ],
+                        [
+                            'text'          => $this->i18n('DNSTT'),
                             'callback_data' => "/dnstt",
                         ],
                     ],
@@ -4837,6 +4895,7 @@ DNS-over-HTTPS with IP:
             'lang'         => $type == 'lang'    ? $this->menuLang()                       : false,
             'oc'           => $type == 'oc'      ? $this->ocMenu()                         : false,
             'naive'        => $type == 'naive'   ? $this->naiveMenu()                      : false,
+            'hy'           => $type == 'hy'      ? $this->hysteriaMenu()                   : false,
             'mirror'       => $type == 'mirror'  ? $this->mirrorMenu()                     : false,
             'update'       => $type == 'update'  ? $this->updatebot()                      : false,
         ];
@@ -5841,6 +5900,32 @@ DNS-over-HTTPS with IP:
             [
                 'text'          => $this->i18n('change password'),
                 'callback_data' => "/changeNaivePass",
+            ],
+        ];
+        $data[] = [
+            [
+                'text'          => $this->i18n('back'),
+                'callback_data' => "/menu",
+            ],
+        ];
+        return [
+            'text' => implode("\n", $text),
+            'data' => $data,
+        ];
+    }
+
+    public function hysteriaMenu()
+    {
+        $pac    = $this->getPacConf();
+        $domain = $this->getDomain();
+        $text[] = "Menu -> Hysteria";
+        $hy     = $this->getHashSubdomain('hy');
+        $text[] = "server: <code>$hy.$domain</code>";
+        $text[] = "passwd: <code>{$pac['hysteria_pass']}</code>";
+        $data[] = [
+            [
+                'text'          => $this->i18n('change password'),
+                'callback_data' => "/changeHysteriaPass",
             ],
         ];
         $data[] = [
@@ -7846,6 +7931,7 @@ DNS-over-HTTPS with IP:
         file_put_contents('/config/upstream.conf', $t);
         $this->ssh("nginx -s reload 2>&1", 'up');
     }
+
     public function setUpstreamDomainOcserv($domain)
     {
         $sub   = $this->getHashSubdomain('oc');
@@ -7854,11 +7940,21 @@ DNS-over-HTTPS with IP:
         file_put_contents('/config/upstream.conf', $t);
         $this->ssh("nginx -s reload 2>&1", 'up');
     }
+
     public function setUpstreamDomainNaive($domain)
     {
         $sub   = $this->getHashSubdomain('np');
         $nginx = file_get_contents('/config/upstream.conf');
         $t = preg_replace('~#naive.+#naive~s', $domain ? "#naive\n$sub.$domain naive;\n#naive" : "#naive\n#$sub.\$domain naive;\n#naive", $nginx);
+        file_put_contents('/config/upstream.conf', $t);
+        $this->ssh("nginx -s reload 2>&1", 'up');
+    }
+
+    public function setUpstreamDomainHysteria($domain)
+    {
+        $sub   = $this->getHashSubdomain('hy');
+        $nginx = file_get_contents('/config/upstream.conf');
+        $t = preg_replace('~#hysteria.+#hysteria~s', $domain ? "#hysteria\n$sub.$domain hysteria;\n#hysteria" : "#hysteria\n#$sub.\$domain hysteria;\n#hysteria", $nginx);
         file_put_contents('/config/upstream.conf', $t);
         $this->ssh("nginx -s reload 2>&1", 'up');
     }
@@ -8214,6 +8310,7 @@ DNS-over-HTTPS with IP:
         $conf = $this->getPacConf();
         $oc   = $this->getHashSubdomain('oc');
         $np   = $this->getHashSubdomain('np');
+        $hy   = $this->getHashSubdomain('hy');
         if (!empty($conf['domain'])) {
             $ssl_expiry = $this->expireCert();
             $certs      = $this->domainsCert() ?: [];
@@ -8223,6 +8320,7 @@ DNS-over-HTTPS with IP:
             $text[] = $conf['domain'] . (in_array($conf['domain'], $certs) ? ' (ssl: ' . date('Y-m-d H:i:s', $ssl_expiry) . ')' : '');
             $text[] = 'naive ' . "$np.{$conf['domain']}" . (in_array("$np.{$conf['domain']}", $certs) ? ' (ssl: ' . date('Y-m-d H:i:s', $ssl_expiry) . ')' : '');
             $text[] = 'openconnect ' . "$oc.{$conf['domain']}" . (in_array("$oc.{$conf['domain']}", $certs) ? ' (ssl: ' . date('Y-m-d H:i:s', $ssl_expiry) . ')' : '');
+            $text[] = 'hysteria ' . "$hy.{$conf['domain']}" . (in_array("$hy.{$conf['domain']}", $certs) ? ' (ssl: ' . date('Y-m-d H:i:s', $ssl_expiry) . ')' : '');
             if (!empty($conf['adguardkey'])) {
                 $text[] = "{$conf['adguardkey']}.{$conf['domain']}" . (in_array("{$conf['adguardkey']}.{$conf['domain']}", $certs) ? ' (ssl: ' . date('Y-m-d H:i:s', $ssl_expiry) . ')' : '') . ' adguard DOT';;
             }
