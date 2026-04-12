@@ -7840,44 +7840,21 @@ DNS-over-HTTPS with IP:
                         $c['proxies'][$index]['tls']                = true;
                         $c['proxies'][$index]['alpn']               = ['h2'];
                         $c['proxies'][$index]['servername']         = '~domain~';
-                        $c['proxies'][$index]['skip-cert-verify']   = false;
+                        $c['proxies'][$index]['encryption']         = '';
 
                         $c['proxies'][$index]['xhttp-opts'] = [
-                            'host'          => '~domain~',
-                            'path'          => "/ws$hash",   // путь как у ws + hash
-                            'mode'          => 'packet-up',
-                            'http-version'  => '2',
-                            'x-padding-bytes' => [
-                                'from' => 100,
-                                'to'   => 1000,
-                            ],
-                            'sc-max-each-post-bytes' => [
-                                'from' => 1000000,
-                                'to'   => 1000000,
-                            ],
-                            'sc-min-posts-interval-ms' => [
-                                'from' => 30,
-                                'to'   => 30,
-                            ],
-                            'sc-stream-up-server-secs' => [
-                                'from' => 25,
-                                'to'   => 60,
-                            ],
-                            'xmux' => [
-                                'max-concurrency' => [
-                                    'from' => 8,
-                                    'to'   => 16,
-                                ],
-                                'max-connections'     => 0,
-                                'h-keep-alive-period' => 15,
-                                'h-max-request-times' => [
-                                    'from' => 100,
-                                    'to'   => 200,
-                                ],
-                                'h-max-reusable-secs' => [
-                                    'from' => 1800,
-                                    'to'   => 3000,
-                                ],
+                            'host'                   => '~domain~',
+                            'path'                   => "/ws$hash",
+                            'mode'                   => 'packet-up',
+                            'no-grpc-header'         => false,
+                            'x-padding-bytes'        => '100-1000',
+                            'sc-max-each-post-bytes' => 1000000,
+                            'reuse-settings'         => [
+                                'max-connections'   => '0',
+                                'max-concurrency'   => '8-16',
+                                'c-max-reuse-times' => '0',
+                                'h-max-request-times' => '100-200',
+                                'h-max-reusable-secs' => '1800-3000',
                             ],
                         ];
                         break;
